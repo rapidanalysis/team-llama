@@ -1,0 +1,789 @@
+/* ============================================================
+   XERXES PI ADMIN — Stylesheet
+   Monochromatic palette, Unifi/Apple inspired.
+   No graphics — CSS only.
+   ============================================================ */
+
+/* Version 6 — console navbar button, popup open/close animation, network spacing fix */
+
+/* ── CSS VARIABLES (Light mode defaults) ── */
+:root {
+  --bg:           #f5f5f7;
+  --bg-card:      #ffffff;
+  --bg-nav:       #ffffff;
+  --bg-output:    #1c1c1e;
+  --border:       #d1d1d6;
+  --text-primary: #1d1d1f;
+  --text-secondary:#6e6e73;
+  --text-output:  #e5e5ea;
+  --accent:       #1d1d1f;
+  --status-on:    #34c759;
+  --status-off:   #ff3b30;
+  --status-idle:  #8e8e93;
+  --radius:       10px;
+  --shadow:       0 1px 3px rgba(0,0,0,0.08);
+  --font:         -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --font-mono:    "SF Mono", "Fira Code", "Consolas", monospace;
+}
+
+/* ── DARK MODE ── */
+[data-theme="dark"] {
+  --bg:           #000000;
+  --bg-card:      #1c1c1e;
+  --bg-nav:       #1c1c1e;
+  --bg-output:    #0a0a0a;
+  --border:       #3a3a3c;
+  --text-primary: #f5f5f7;
+  --text-secondary:#98989d;
+  --accent:       #f5f5f7;
+  --shadow:       0 1px 4px rgba(0,0,0,0.4);
+}
+
+/* ── RESET & BASE ── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+[hidden] { display: none !important; }  /* ensure hidden attribute wins over any display rule */
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: var(--font);
+  background: var(--bg);
+  color: var(--text-primary);
+  font-size: 15px;
+  line-height: 1.5;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  transition: background 0.2s, color 0.2s;
+}
+
+/* ── NAVBAR ── */
+.navbar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  gap: 24px;
+  padding: 0 32px;
+  height: 56px;
+  background: var(--bg-nav);
+  border-bottom: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+.navbar-brand { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+
+/* Pure CSS brand mark — no image */
+.brand-mark {
+  width: 30px;
+  height: 30px;
+  background: var(--text-primary);
+  color: var(--bg-nav);
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+.brand-text { display: flex; flex-direction: column; line-height: 1.1; }
+.brand-title { font-size: 14px; font-weight: 600; }
+.brand-sub   { font-size: 11px; color: var(--text-secondary); letter-spacing: 0.02em; }
+
+.navbar-nav { display: flex; align-items: center; gap: 4px; flex: 1; }
+
+.nav-link {
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  text-decoration: none;
+  transition: background 0.15s, color 0.15s;
+}
+
+.nav-link:hover, .nav-link.active {
+  background: var(--border);
+  color: var(--text-primary);
+}
+
+.navbar-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+/* ── STATUS PILL ── */
+.status-pill {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--status-idle);
+  transition: background 0.3s;
+}
+
+.status-dot.online  { background: var(--status-on); }
+.status-dot.offline { background: var(--status-off); }
+
+/* ── THEME TOGGLE ── */
+.theme-toggle {
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  font-family: var(--font);
+}
+
+.theme-toggle:hover { background: var(--border); color: var(--text-primary); }
+
+/* ── CONSOLE BUTTON (navbar) ── */
+.console-btn {
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+}
+
+.console-btn:hover { background: var(--accent); color: var(--bg); border-color: var(--accent); }
+
+/* ── MAIN CONTENT ── */
+.content {
+  flex: 1;
+  max-width: 960px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 40px 32px;
+}
+
+/* ── TAB SWITCHING — only .active section is shown ── */
+.section         { display: none; margin-bottom: 8px; }
+.section.active  { display: block; }
+
+.section-title {
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.section-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-bottom: 20px;
+}
+
+.placeholder-note {
+  padding: 24px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  text-align: center;
+  color: var(--text-secondary);
+}
+
+.divider { height: 1px; background: var(--border); margin: 36px 0; }
+
+/* ── DASHBOARD CARDS ── */
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-shadow: var(--shadow);
+}
+
+.card-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+
+.card-value {
+  font-size: 18px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── COMMAND BUTTONS ── */
+.command-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.cmd-btn {
+  padding: 12px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  font-family: var(--font);
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s, border-color 0.15s, transform 0.1s;
+  box-shadow: var(--shadow);
+}
+
+.cmd-btn:hover {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+}
+
+.cmd-btn:active  { transform: scale(0.98); }
+.cmd-btn.running { opacity: 0.6; cursor: wait; }
+
+/* ── OUTPUT PANEL ── */
+.output-panel {
+  border-radius: var(--radius);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+}
+
+.output-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 16px;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+
+.clear-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-family: var(--font);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.clear-btn:hover { background: var(--border); color: var(--text-primary); }
+
+.output-body {
+  background: var(--bg-output);
+  color: var(--text-output);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.7;
+  padding: 20px;
+  min-height: 180px;
+  max-height: 340px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* ── DANGER ZONE (reboot / shutdown) ── */
+.danger-zone {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 20px;
+  padding: 14px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+}
+
+.danger-label {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+
+.danger-btns { display: flex; gap: 10px; }
+
+.danger-btn {
+  padding: 8px 18px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.danger-btn:hover {
+  border-color: #ff9500;
+  color: #ff9500;
+}
+
+.danger-btn--shutdown:hover {
+  border-color: var(--status-off);
+  color: var(--status-off);
+}
+
+/* Gap between the live-info card grid and the first control card below it */
+#net-info-grid { margin-bottom: 20px; }
+
+/* ── CONTROL CARDS (Network / Tunnels) ── */
+/* Intentionally matches .card style for visual consistency */
+.control-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 20px 24px;
+  margin-bottom: 14px;
+  box-shadow: var(--shadow);
+  display: block;  /* ensure block layout even if browser quirks */
+}
+
+.control-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.control-card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.control-card-desc {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 10px;
+  margin-bottom: 14px;
+  line-height: 1.5;
+}
+
+/* ── SERVICE BADGES ── */
+.service-badge {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  text-transform: lowercase;
+}
+
+.badge-active   { border-color: var(--status-on);  color: var(--status-on); }
+.badge-inactive { border-color: var(--border);      color: var(--text-secondary); }
+.badge-failed   { border-color: var(--status-off);  color: var(--status-off); }
+.badge-neutral  { border-color: var(--border);      color: var(--text-secondary); }
+
+/* ── INPUT ROW (hostname rename) ── */
+.input-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.text-input {
+  flex: 1;
+  padding: 9px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: var(--font-mono);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.text-input:focus { border-color: var(--accent); }
+
+.action-btn {
+  padding: 9px 18px;
+  border-radius: var(--radius);
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: var(--bg);
+  font-size: 13px;
+  font-weight: 500;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: opacity 0.15s;
+  white-space: nowrap;
+}
+
+.action-btn:hover { opacity: 0.8; }
+
+/* ── SECONDARY BUTTON (reset / cancel style) ── */
+.secondary-btn {
+  padding: 9px 14px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 500;
+  font-family: var(--font);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  white-space: nowrap;
+}
+
+.secondary-btn:hover {
+  background: var(--border);
+  color: var(--text-primary);
+}
+
+.control-feedback {
+  font-size: 12px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  min-height: 18px;
+}
+
+.control-feedback.success { color: var(--status-on); }
+.control-feedback.error   { color: var(--status-off); }
+
+/* ── BTN ROW (service controls) ── */
+.btn-row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* ── DOCKER RUN FORM ── */
+.run-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin-top: 14px;
+}
+
+.form-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+
+.form-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.form-field--grow {
+  flex: 1;
+  min-width: 160px;
+}
+
+.form-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+
+.required { color: var(--status-off); }
+
+.select-input {
+  padding: 9px 12px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: var(--font);
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s;
+  height: 38px;
+}
+
+.select-input:focus { border-color: var(--accent); }
+
+.select-input--narrow { width: 72px; flex-shrink: 0; }
+
+.list-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.list-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dynamic-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.dynamic-row .text-input { flex: 1; min-width: 0; }
+
+.row-sep {
+  font-size: 13px;
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.remove-btn {
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 18px;
+  line-height: 1;
+  font-family: var(--font);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.remove-btn:hover {
+  background: var(--status-off);
+  border-color: var(--status-off);
+  color: #fff;
+}
+
+.run-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 4px;
+}
+
+/* ── FOOTER ── */
+.footer {
+  text-align: center;
+  padding: 20px 32px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  border-top: 1px solid var(--border);
+}
+
+/* ── POPUP ANIMATIONS ── */
+@keyframes overlay-in  { from { opacity: 0; }                          to { opacity: 1; } }
+@keyframes overlay-out { from { opacity: 1; }                          to { opacity: 0; } }
+@keyframes popup-in    { from { opacity: 0; transform: scale(0.93); }  to { opacity: 1; transform: scale(1); } }
+@keyframes popup-out   { from { opacity: 1; transform: scale(1);    }  to { opacity: 0; transform: scale(0.93); } }
+
+/* ── OUTPUT POPUP OVERLAY ── */
+.popup-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.45);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+
+/* Open animations — play when popup becomes visible */
+.popup-overlay:not([hidden]) {
+  animation: overlay-in 0.2s ease both;
+}
+.popup-overlay:not([hidden]) .popup-box {
+  animation: popup-in 0.22s cubic-bezier(0.34, 1.12, 0.64, 1) both;
+}
+
+/* Close animations — driven by .popup-closing class set in JS */
+.popup-overlay.popup-closing {
+  animation: overlay-out 0.16s ease forwards;
+}
+.popup-overlay.popup-closing .popup-box {
+  animation: popup-out 0.16s ease forwards;
+}
+
+.popup-box {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.24);
+  width: 100%;
+  max-width: 640px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+
+.popup-close-btn {
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 14px;
+  color: var(--text-secondary);
+  padding: 2px 6px;
+  border-radius: 4px;
+  line-height: 1;
+  transition: background 0.15s, color 0.15s;
+}
+
+.popup-close-btn:hover {
+  background: var(--border);
+  color: var(--text-primary);
+}
+
+.popup-body {
+  background: var(--bg-output);
+  color: var(--text-output);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.7;
+  padding: 20px;
+  min-height: 120px;
+  max-height: 400px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0;
+}
+
+/* ── MINI CARDS (Tailscale / ngrok info rows) ── */
+.mini-card-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.mini-card {
+  flex: 1;
+  min-width: 120px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.mini-card--wide { flex: 2; }
+
+.mini-card-label {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+}
+
+.mini-card-value {
+  font-size: 13px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  color: var(--text-primary);
+  word-break: break-all;
+}
+
+/* ── SELECT INPUT ── */
+.select-input {
+  padding: 9px 10px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: var(--font);
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.15s;
+  min-width: 140px;
+}
+
+.select-input:focus { border-color: var(--accent); }
+
+/* ── INPUT LABEL ── */
+.input-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  align-self: center;
+}
+
+/* ── STATIC IP FIELDS wrapper ── */
+.static-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+/* ── INLINE CODE in desc text ── */
+.control-card-desc code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  color: var(--text-primary);
+}

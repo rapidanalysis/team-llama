@@ -1,0 +1,135 @@
+============================================================
+Change Log
+Date: 2026-05-03
+Author: Arthur (Arthurgp3)
+Branch: main (Arthurgp3/XerxesAdminPanel)
+============================================================
+
+SUMMARY
+-------
+Merged Group 2's completed work into Group 1's branch.
+Group 2 implemented the CommandWrapper utility class in
+utils.h and utils.cpp a role-based command execution
+engine with timeout support and an audit log. Their new
+functions were integrated into system_ops without touching
+any of Group 1's existing routes, frontend, or service
+control work. The Makefile was updated to support the
+threading library required by the new code.
+
+
+FILES MODIFIED
+
+include/system_ops.h
+  - Added #include "utils.h" to expose CommandWrapper,
+    CommandResult, and user_role types
+  - Added declaration for initialize() — sets up the
+    CommandWrapper singleton with default commands
+  - Added declaration for execute_command() — executes
+    a command via CommandWrapper with role-based access
+    control and timeout support
+
+src/system_ops.cpp
+  - Added #include <iostream> (required by initialize()
+    for startup log messages)
+  - Added initialize() implementation — calls
+    CommandWrapper::get_instance().initialize_defaults()
+    and logs confirmation to stdout
+  - Added execute_command() implementation — routes
+    execution through CommandWrapper::execute_with_timeout()
+    with lazy initialisation fallback
+
+Makefile
+  - Added -pthread flag to CXXFLAGS required because
+    utils.cpp uses std::async (C++11 threading) which
+    needs pthread support at both compile and link time
+
+
+FILES ADDED (Group 2's work, taken wholesale)
+
+include/utils.h
+  - command_cat namespace — Category enum (SYSTEM, NETWORK,
+    DOCKER, CONTAINER, ADMIN) for classifying commands
+  - user_role namespace — Role enum (ADMIN, GUEST, VIEWER)
+    and Permission bitmask for access control
+  - CommandResult struct — holds execution outcome, exit
+    code, stdout output, error message, timestamp, and
+    execution time in milliseconds
+  - CommandEntry struct — defines an allowlisted command
+    with name, shell string, category, admin requirement,
+    description, timeout, and allowed parameter values
+  - CommandWrapper class (singleton) — full command
+    execution engine with:
+      initialize_defaults()  register built-in commands
+      add_command()          add entry to allowlist
+      execute()              run with 30 s default timeout
+      execute_with_timeout() run with custom timeout via
+                             std::async for non-blocking
+                             execution
+      is_allowed()           check if command is registered
+      get_command_info()     look up a CommandEntry by name
+      get_commands_by_category() filter by category
+      sanitize_output()      strip null bytes, escape
+                             backticks and dollar signs
+      get_audit_log()        retrieve execution history
+      clear_audit_log()      reset audit log
+  - Legacy function declarations for backward compatibility:
+      is_safe_identifier()   alphanumeric + hyphen/underscore
+      is_valid_ipv4()        kernel-validated IPv4 check
+      sys_exec()             std::system() wrapper
+
+src/utils.cpp
+  - Full implementation of everything declared in utils.h
+  - user_role::get_permissions() — returns permission
+    bitmask for a given role
+  - user_role::has_permission() — checks role against
+    a specific permission flag
+  - is_shell_safe() — rejects strings containing shell
+    metacharacters
+  - get_timestamp() — formatted timestamp with milliseconds,
+    cross-platform (uses localtime_r on Linux)
+  - Legacy function implementations:
+      is_safe_identifier() — length + charset validation
+      is_valid_ipv4()      — inet_pton wrapper
+      sys_exec()           — std::system() wrapper
+  - CommandWrapper::initialize_defaults() — registers all
+    built-in commands across SYSTEM, NETWORK, DOCKER,
+    CONTAINER, ADMIN, and tunnel categories
+  - CommandWrapper::execute_with_timeout() — runs the
+    command in a std::async thread, waits up to timeout_ms,
+    returns timeout error if exceeded
+  - Full implementations of build_command(), validate_params(),
+    log_execution(), sanitize_output(), add_command(),
+    is_allowed(), get_command_info(), get_commands_by_category(),
+    get_audit_log(), clear_audit_log()
+
+
+FILES UNCHANGED (Group 2's versions were older — kept ours)
+
+  src/router.cpp      — our version has /api/hostname and
+                        /api/services which Group 2 did not
+  public/index.html   — our version has full Network and
+                        Tunnels sections
+  public/app.js       — our version has service badges,
+                        hostname rename, and power controls
+  public/lang.json    — our version has all i18n keys for
+                        the above sections
+  src/docker_manager.cpp  — empty in both branches
+  include/docker_manager.h — empty in both branches
+
+
+WHAT WORKS
+
+- Full project compiles cleanly with make after merge
+- All Group 1 features unchanged and fully functional
+- CommandWrapper available for future use by Group 3's
+  access control layer and Group 2's docker integration
+- Audit log silently records every command execution
+- Role-based permission system ready to be wired up once
+  Group 3 delivers the access_control module
+
+
+WHAT COMES NEXT (Group 1)
+
+- Wire up Group 2 docker_manager module once delivered
+- Wire up Group 2 access_control stubs once delivered
+============================================================

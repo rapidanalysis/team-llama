@@ -1,0 +1,93 @@
+============================================================
+Change Log
+Date: 2026-04-01
+Author: Arthur (Arthurgp3)
+Branch: main (Arthurgp3/XerxesAdminPanel)
+============================================================
+
+SUMMARY
+-------
+Initial frontend and router implementation for Group 1
+(Command Input focus). This commit establishes the HTTP
+routing layer and a fully functional browser-based UI
+that connects to the C++ backend.
+
+
+FILES MODIFIED
+
+src/main.cpp
+  - Replaced raw TCP socket server with httplib-based server
+  - Now calls setup_routes() from the router module
+  - Cleaner and properly supports multiple endpoints
+
+
+FILES ADDED
+
+include/router.h
+  - Declares setup_routes(httplib::Server&) function
+  - Interface between main.cpp and the routing logic
+
+src/router.cpp
+  - Implements HTTP route handlers using httplib.h
+  - GET  /api/status  — returns backend online status as JSON
+  - POST /api/command — accepts { "command": "<name>" } and
+                        returns placeholder response (ready
+                        for system_ops.cpp integration)
+  - OPTIONS /*        — CORS preflight handler for browser
+                        fetch requests
+  - Serves static frontend files from public/ directory
+
+public/index.html
+  - Full dashboard layout with four sections:
+      Dashboard  — system info cards (Hostname, Uptime,
+                   Disk Usage, IP Address)
+      Commands   — six predefined command buttons wired to
+                   POST /api/command
+      Network    — placeholder section (future work)
+      Docker     — placeholder section (Group 2 scope)
+  - All text uses data-i18n attributes for localisation
+
+public/styles.css
+  - Monochromatic stylesheet (URS compliant — no graphics)
+  - CSS variable system supports light and dark mode
+  - Inspired by Unifi and Apple as specified in the URS
+  - Responsive card grid and command button layout
+  - Terminal-style output panel
+
+public/app.js
+  - Loads lang.json via XMLHttpRequest for localisation
+  - Polls GET /api/status every 15 seconds, updates status
+    pill in the navbar (green = online, red = offline)
+  - Handles command button clicks, sends POST /api/command,
+    displays response in the output panel
+  - Light/dark mode toggle with localStorage persistence
+  - Clear output button
+
+public/lang.json
+  - Centralised localisation file for all UI text strings
+  - Referenced by app.js using data-i18n element attributes
+  - Follows URS requirement for external translation support
+
+
+
+WHAT WORKS
+
+- Backend compiles and runs with: make && cp xerxes_backend
+  /tmp/xerxes_backend && /tmp/xerxes_backend
+- Frontend served at http://localhost:7272
+- Status indicator correctly shows backend online/offline
+- Dark/light mode toggle functional
+- Command buttons send requests to backend
+- Localisation system loads from lang.json
+
+
+WHAT COMES NEXT (Group 1)
+
+- Implement system_ops.cpp — the command execution module
+  - Match incoming command name against a hardcoded allowlist
+  - Safely execute using popen() or similar
+  - Capture stdout/stderr and return as JSON
+  - No raw user input should ever reach the shell
+- Wire system_ops into the POST /api/command handler
+- Populate dashboard cards (Hostname, Uptime, Disk, IP)
+  from real system data on page load

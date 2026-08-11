@@ -1,0 +1,78 @@
+============================================================
+Change Log
+Date: 2026-04-22
+Author: Arthur (Arthurgp3)
+Branch: main (Arthurgp3/XerxesAdminPanel)
+============================================================
+
+SUMMARY
+-------
+Implemented the command execution module (system_ops) and
+wired it into the backend router. Dashboard cards now
+populate with live system data on page load. Command buttons
+return real output from the VM instead of placeholder text.
+
+
+FILES MODIFIED
+
+src/router.cpp
+  - Added #include for system_ops.h
+  - POST /api/command now calls system_ops::run_command()
+    and returns real output instead of a placeholder message
+  - Added new GET /api/dashboard endpoint that returns
+    hostname, uptime, disk usage, and IP address as JSON
+    in a single request for the dashboard cards
+
+public/app.js
+  - Added loadDashboard() function that calls GET /api/dashboard
+    on page load and populates the four status cards
+  - loadDashboard() called during initialisation alongside
+    loadLang()
+
+
+FILES ADDED
+
+include/system_ops.h
+  - Declares the system_ops namespace
+  - Declares run_command(command_name) for button execution
+  - Declares four dashboard helpers: get_hostname(),
+    get_uptime(), get_disk_usage(), get_ip_address()
+
+src/system_ops.cpp
+  - Implements capture() — runs a hardcoded shell command
+    via popen() and returns stdout as a string
+  - Implements a hardcoded ALLOWLIST mapping command names
+    to fixed shell strings. No user input ever reaches
+    the shell — only allowlist keys are accepted
+  - Allowlisted commands:
+      disk_usage   -> df -h
+      uptime       -> uptime
+      network_info -> ip addr show
+      memory       -> free -h
+      processes    -> ps aux --sort=-%cpu | head -15
+      port_scan    -> ss -tlnp
+  - Implements dashboard helpers using hardcoded commands:
+      get_hostname()   -> hostname
+      get_uptime()     -> uptime -p
+      get_disk_usage() -> df -h / | tail -1 | awk '{print $3"/"$2}'
+      get_ip_address() -> hostname -I | awk '{print $1}'
+
+
+WHAT WORKS
+
+- All six command buttons return real system output
+- Dashboard cards (Hostname, Uptime, Disk, IP) populate
+  automatically on page load from live VM data
+- Unknown or unlisted command names are rejected safely
+- Full pipeline confirmed working: browser button click
+  -> POST /api/command -> system_ops allowlist -> shell
+  -> output returned as JSON -> displayed in output panel
+
+
+WHAT COMES NEXT (Group 1)
+
+- Improve dashboard card refresh (auto-refresh on interval)
+- Add active section highlighting as user scrolls
+- Begin implementing Network section (hostname rename,
+  SMB service status, network info display)
+============================================================

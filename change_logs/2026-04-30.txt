@@ -1,0 +1,159 @@
+============================================================
+Change Log
+Date: 2026-04-30
+Author: Arthur (Arthurgp3)
+Branch: main (Arthurgp3/XerxesAdminPanel)
+============================================================
+
+SUMMARY
+-------
+Implemented the Network and Tunnels sections fully.
+Added hostname rename, SMB file sharing controls, Tailscale
+tunnel management, and ngrok tunnel controls. Backend extended
+with new API endpoints, service status badges, and a hardened
+ALLOWLIST covering all new commands. Fixed a compiler warning
+and a badge double-text bug.
+
+
+FILES MODIFIED
+
+src/system_ops.cpp
+  - Fixed _GNU_SOURCE redefinition compiler warning by wrapping
+    the define in an #ifndef guard and moving it before all
+    includes so it takes effect before system headers are read
+  - Extended ALLOWLIST with all new service and tunnel commands:
+      samba_start     -> sudo systemctl start smbd 2>&1
+                         (appends success/fail message since
+                          systemctl is silent on success)
+      samba_stop      -> sudo systemctl stop smbd 2>&1
+                         (appends success/fail message)
+      samba_status    -> SYSTEMD_COLORS=0 systemctl status smbd
+                         --no-pager --full 2>&1
+                         (SYSTEMD_COLORS=0 forces plain text
+                          output through non-TTY pipes)
+      tailscale_up    -> timeout 10 sudo tailscale up 2>&1
+                         (capped at 10 s; outputs auth URL if
+                          authentication is needed, otherwise
+                          confirms up)
+      tailscale_down  -> sudo tailscale down 2>&1
+      tailscale_status-> tailscale status 2>&1
+      ngrok_start     -> ngrok http 8080 run in background,
+                         logs to /tmp/ngrok.log
+      ngrok_stop      -> pkill ngrok
+      ngrok_status    -> pgrep -x ngrok check
+      reboot          -> sudo systemctl reboot 2>&1
+      shutdown        -> sudo systemctl poweroff 2>&1
+  - Added set_hostname() — validates proposed name strictly
+    against RFC 1123 rules (alphanumeric + hyphens only,
+    1-63 chars, no leading/trailing hyphens) before building
+    the shell command. Also updates the 127.0.1.1 entry in
+    /etc/hosts via sed to prevent sudo hostname warnings
+  - Added get_service_status() — uses a separate internal
+    hardcoded map to check service states safely:
+      smbd      -> systemctl is-active smbd
+      tailscaled-> tailscale status, greps for IP line to
+                   reflect connection state rather than daemon
+                   state (daemon stays active after tailscale
+                   down, connection state does not)
+      ngrok     -> pgrep -x ngrok check
+
+src/router.cpp
+  - Added POST /api/hostname endpoint — parses { "hostname":
+    "new-name" } and calls system_ops::set_hostname()
+  - Added GET /api/services endpoint — returns active/inactive
+    status of smbd, tailscaled, and ngrok as JSON
+
+public/index.html
+  - Replaced Network placeholder with full section:
+      Device Hostname card — text input, Rename button, Reset
+      button (pre-fills current hostname from dashboard card)
+      SMB File Sharing card — Start, Stop, View Status buttons
+        with service badge showing live smbd state
+  - Replaced Tunnels placeholder with full section:
+      Tailscale card — Enable, Disable, View Status buttons
+        with service badge showing live connection state
+      ngrok card — Start, Stop, Check Status buttons
+        with service badge showing live process state
+  - Added Power Controls to Dashboard section — Reboot and
+    Shutdown buttons with confirm dialogs
+  - Added Tunnels nav link to navbar
+
+public/app.js
+  - Added loadServices() — calls GET /api/services on page
+    load and after any service-related command, updates all
+    three service badges (smbd, tailscale, ngrok)
+  - Added updateBadge() — sets badge text and applies
+    badge-active / badge-inactive / badge-failed CSS class
+  - Extended loadDashboard() to also update the hostname badge
+    in the Network section
+  - Added hostname rename logic — Rename button posts to
+    POST /api/hostname, Reset button pre-fills current
+    hostname from the dashboard card value
+  - Added reboot and shutdown button handlers with
+    window.confirm dialogs before sending the command
+  - Extended serviceCommands list so loadServices() is called
+    after samba, tailscale, and ngrok commands to keep badges
+    in sync
+  - tailscale_up given a 20 s XHR timeout (all others 15 s)
+    to allow time for the auth URL output to arrive
+
+public/lang.json
+  - Added i18n keys for all new UI elements:
+    network_desc, ctrl_hostname_title, ctrl_hostname_desc,
+    ctrl_hostname_btn, ctrl_hostname_reset, ctrl_smb_title,
+    ctrl_smb_desc, ctrl_smb_start, ctrl_smb_stop,
+    ctrl_smb_status, tunnels_desc, ctrl_tailscale_title,
+    ctrl_tailscale_desc, ctrl_tailscale_up, ctrl_tailscale_down,
+    ctrl_tailscale_status, ctrl_ngrok_title, ctrl_ngrok_desc,
+    ctrl_ngrok_start, ctrl_ngrok_stop, ctrl_ngrok_status,
+    danger_label, btn_reboot, btn_shutdown
+
+.vscode/c_cpp_properties.json
+  - Changed intelliSenseMode from windows-gcc-x64 to
+    linux-gcc-x64 and added __linux__ and __x86_64__ to
+    defines so VS Code correctly resolves POSIX functions
+    (popen, pclose) without false undefined-identifier errors
+
+
+BUGS FIXED
+
+- _GNU_SOURCE redefined compiler warning on every make
+  (GCC on Debian 13 defines it implicitly at command-line
+  level; source-level define was always a redefinition)
+
+- SMB badge showing "inactive inactive" instead of "inactive"
+  systemctl is-active already prints "inactive" when a unit
+  is not found and exits non-zero, so the || echo inactive
+  fallback was appending a second "inactive" line. Removed
+  the fallback for smbd and tailscaled status checks.
+
+- Tailscale badge staying "active" after pressing Disable
+  systemctl is-active tailscaled reflects daemon state, not
+  connection state. The daemon stays running after tailscale
+  down. Fixed by switching to a tailscale status grep that
+  checks for a connected IP address line instead.
+
+- Start/Stop commands showing [no output]
+  systemctl start and stop are intentionally silent on
+  success. Fixed by appending explicit confirmation strings
+  to samba_start, samba_stop, and tailscale_up so the user
+  always receives feedback in the output panel.
+
+
+WHAT WORKS
+
+- Hostname rename with live badge update and /etc/hosts patch
+- SMB Start, Stop, View Status with badge reflecting live state
+- Tailscale Enable, Disable, View Status with badge reflecting
+  actual connection state (not daemon state)
+- ngrok Start, Stop, Check Status (requires auth token to be
+  configured in VM once via: ngrok config add-authtoken TOKEN)
+- Reboot and Shutdown with confirm dialogs
+- All service badges update automatically after each command
+- VS Code IntelliSense no longer shows false errors for popen
+
+
+WHAT COMES NEXT (Group 1)
+
+- Wire up Group 2 docker_manager module once delivered
+- Wire up Group 2 access_control stubs once delivered

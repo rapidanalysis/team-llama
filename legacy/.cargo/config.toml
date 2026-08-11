@@ -1,0 +1,4 @@
+[build]
+# This forces Cargo to compile outside the synced Windows folder, 
+# placing the build artifacts safely in the Linux user's home directory.
+target-dir = "/home/vagrant/xerxes-build-target"

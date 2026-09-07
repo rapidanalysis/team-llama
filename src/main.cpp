@@ -3,7 +3,7 @@
 #include "router.h"
 #include "system_ops.h"
 
-#define PORT 8080
+#define PORT 8000
 
 int main() {
     // Initialize system operations and command wrapper

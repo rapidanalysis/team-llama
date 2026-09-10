@@ -416,6 +416,49 @@
       </div>
     </section>
 
+    <!-- -- LLAMA -- -->
+    <section id="llama" class="section">
+      <h2 class="section-title" data-i18n="nav_llama">Llama</h2>
+      <p class="section-desc" data-i18n="llama_desc">Run a language model on this device. Off by default so it uses no memory.</p>
+
+      <!-- Enable -->
+      <div class="control-card">
+        <div class="control-card-header">
+          <label class="toggle-switch">
+            <input type="checkbox" id="llama-enable-toggle">
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="control-card-title" data-i18n="ctrl_llama_enable_title">Enable Llama</span>
+        </div>
+        <p class="control-card-desc" data-i18n="ctrl_llama_enable_desc">Starts the llama service. The rest of the panel keeps working either way.</p>
+      </div>
+
+      <!-- Model source -->
+      <div class="control-card">
+        <div class="control-card-header">
+          <span class="control-card-title" data-i18n="ctrl_llama_model_title">Model source</span>
+        </div>
+        <p class="control-card-desc" data-i18n="ctrl_llama_model_desc">Enter a model location, then download it to this device.</p>
+        <div class="input-row">
+          <input class="text-input" type="text" id="llama-model-url"
+                 placeholder="Hugging Face repo or direct URL" spellcheck="false" />
+          <button class="action-btn" id="llama-download-btn" data-i18n="ctrl_llama_download_btn">Download</button>
+        </div>
+        <div class="control-feedback" id="llama-model-feedback"></div>
+      </div>
+
+      <!-- Installed models -->
+      <div class="control-card">
+        <div class="control-card-header">
+          <span class="control-card-title" data-i18n="ctrl_llama_installed_title">Installed models</span>
+        </div>
+        <div class="empty-state" id="llama-installed-empty" data-i18n="llama_installed_empty">
+          Enable llama to manage models
+        </div>
+        <div class="model-list" id="llama-installed-list" hidden></div>
+      </div>
+    </section>
+
   </main>
 
   <!-- ── FOOTER ── -->

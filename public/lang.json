@@ -80,5 +80,14 @@
   "docker_run_ports": "Port Mappings",
   "docker_run_volumes": "Volume Mounts",
   "docker_run_env": "Environment Variables",
-  "docker_run_btn": "Run Container"
+  "docker_run_btn": "Run Container",
+  "nav_llama": "Llama",
+  "llama_desc": "Run a language model on this device. Off by default so it uses no memory.",
+  "ctrl_llama_enable_title": "Enable Llama",
+  "ctrl_llama_enable_desc": "Starts the llama service. The rest of the panel keeps working either way.",
+  "ctrl_llama_model_title": "Model source",
+  "ctrl_llama_model_desc": "Enter a model location, then download it to this device.",
+  "ctrl_llama_download_btn": "Download",
+  "ctrl_llama_installed_title": "Installed models",
+  "llama_installed_empty": "Enable llama to manage models"
 }

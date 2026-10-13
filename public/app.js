@@ -88,7 +88,7 @@ navLinks.forEach(function (link) {
 
     // Lazy-load section data
     if (target === "network") loadNetworkInfo();
-    if (target === "tunnels") loadTailscaleDetails();
+    if (target === "tunnels") { loadTailscaleDetails(); loadNewtStatus(); }
     if (target === "llama")   { loadLlamaStatus(); loadLlamaModels(); }
   });
 });
@@ -187,6 +187,7 @@ function loadServices() {
         updateBadge("badge-samba",     data.smbd);
         updateBadge("badge-tailscale", data.tailscaled);
         updateBadge("badge-ngrok",     data.ngrok);
+        updateBadge("badge-newt",      data.newt);
       } catch (e) { console.warn("Services parse error:", e); }
     }
   };
@@ -240,7 +241,9 @@ document.getElementById("clear-output").addEventListener("click", function () {
 });
 
 /* ── GENERIC CMD-BTN (non-system — shows output popup) ── */
-document.querySelectorAll(".cmd-btn:not(.sys-cmd)").forEach(function (btn) {
+// Only buttons that carry a data-command. Docker buttons and the Newt Disable
+// button have their own handlers and must not also post an empty command here.
+document.querySelectorAll(".cmd-btn[data-command]:not(.sys-cmd)").forEach(function (btn) {
   btn.addEventListener("click", function () {
     runPopupCommand(btn.getAttribute("data-command"), btn);
   });
@@ -500,6 +503,95 @@ document.getElementById("ts-enable-btn").addEventListener("click", function () {
   xhr.onerror   = function () { setPopupOutput("Error: Could not reach backend."); btn.disabled = false; btn.textContent = "Enable"; };
   xhr.ontimeout = function () { setPopupOutput("Tailscale up timed out — check if auth is needed."); btn.disabled = false; btn.textContent = "Enable"; };
   xhr.send(JSON.stringify({ authkey: authkey }));
+});
+
+/* ── NEWT (PANGOLIN) DASHBOARD ── */
+function loadNewtStatus() {
+  var xhr = new XMLHttpRequest();
+  xhr.open("GET", API_BASE + "/api/newt/status", true);
+  xhr.timeout = 5000;
+  xhr.onload = function () {
+    try {
+      var data = JSON.parse(xhr.responseText);
+      document.getElementById("newt-endpoint").textContent = data.endpoint || "—";
+      document.getElementById("newt-id").textContent       = data.id || "—";
+      document.getElementById("newt-state").textContent    =
+        data.state === "not_installed" ? "not set up" : (data.state || "—");
+    } catch (e) {}
+  };
+  xhr.send();
+}
+
+document.getElementById("newt-enable-btn").addEventListener("click", function () {
+  var endpoint = document.getElementById("newt-endpoint-input").value.trim();
+  var id       = document.getElementById("newt-id-input").value.trim();
+  var secretEl = document.getElementById("newt-secret-input");
+  var secret   = secretEl.value.trim();
+  var feedback = document.getElementById("newt-feedback");
+  var btn      = this;
+
+  // Same rules as the backend; the backend checks again.
+  if (!/^https:\/\/[A-Za-z0-9.\-]+(:[0-9]{1,5})?\/?$/.test(endpoint)) {
+    showFeedback(feedback, "Endpoint must look like https://pangolin.example.com", "error");
+    return;
+  }
+  if (!/^[A-Za-z0-9\-_]{1,128}$/.test(id) || !/^[A-Za-z0-9\-_]{1,128}$/.test(secret)) {
+    showFeedback(feedback, "Site ID and secret may only contain letters, numbers, hyphens and underscores.", "error");
+    return;
+  }
+
+  showOutputPopup("Newt — Enable", "Starting Newt...");
+  btn.disabled    = true;
+  btn.textContent = "Enabling...";
+  showFeedback(feedback, "", "");
+
+  var xhr = new XMLHttpRequest();
+  xhr.open("POST", API_BASE + "/api/newt/up", true);
+  xhr.setRequestHeader("Content-Type", "application/json");
+  // The first start pulls the image, which can take a while on a slow link.
+  xhr.timeout = 120000;
+
+  xhr.onload = function () {
+    try {
+      var data = JSON.parse(xhr.responseText);
+      setPopupOutput(data.success ? (data.output || "Newt started.")
+                                  : ((data.error || "Failed.") + (data.output ? "\n\n" + data.output : "")));
+      showFeedback(feedback, data.success ? "Newt started." : (data.error || "Failed."),
+                   data.success ? "success" : "error");
+      if (data.success) secretEl.value = "";  // do not leave the secret in the page
+    } catch (e) { setPopupOutput(xhr.responseText); }
+    btn.disabled    = false;
+    btn.textContent = "Enable";
+    loadServices();
+    loadNewtStatus();
+  };
+  xhr.onerror   = function () { setPopupOutput("Error: Could not reach backend."); btn.disabled = false; btn.textContent = "Enable"; };
+  xhr.ontimeout = function () { setPopupOutput("Error: Request timed out. The image may still be downloading; check View Logs."); btn.disabled = false; btn.textContent = "Enable"; };
+  xhr.send(JSON.stringify({ endpoint: endpoint, id: id, secret: secret }));
+});
+
+document.getElementById("newt-disable-btn").addEventListener("click", function () {
+  if (!confirm("Disable Newt? This stops the tunnel and deletes the stored site secret.")) return;
+  var btn = this;
+  showOutputPopup("Newt — Disable", "Stopping Newt...");
+  btn.disabled = true;
+
+  var xhr = new XMLHttpRequest();
+  xhr.open("POST", API_BASE + "/api/newt/down", true);
+  xhr.setRequestHeader("Content-Type", "application/json");
+  xhr.timeout = 30000;
+  xhr.onload = function () {
+    try {
+      var data = JSON.parse(xhr.responseText);
+      setPopupOutput(data.output || "Done.");
+    } catch (e) { setPopupOutput(xhr.responseText); }
+    btn.disabled = false;
+    loadServices();
+    loadNewtStatus();
+  };
+  xhr.onerror   = function () { setPopupOutput("Error: Could not reach backend."); btn.disabled = false; };
+  xhr.ontimeout = function () { setPopupOutput("Error: Request timed out.");       btn.disabled = false; };
+  xhr.send("{}");
 });
 
 /* ── NGROK DASHBOARD ── */

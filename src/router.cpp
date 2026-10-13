@@ -3,6 +3,7 @@
 #include "network_config.h"
 #include "docker_manager.h"
 #include "llama_manager.h"
+#include "newt_manager.h"
 #include "json.hpp"
 #include <iostream>
 #include <cctype>
@@ -148,7 +149,8 @@ void setup_routes(httplib::Server& svr) {
         nlohmann::json response = {
             {"smbd",       system_ops::get_service_status("smbd")},
             {"tailscaled", system_ops::get_service_status("tailscaled")},
-            {"ngrok",      system_ops::get_service_status("ngrok")}
+            {"ngrok",      system_ops::get_service_status("ngrok")},
+            {"newt",       system_ops::get_service_status("newt")}
         };
 
         res.set_content(response.dump(), "application/json");
@@ -430,6 +432,71 @@ void setup_routes(httplib::Server& svr) {
             res.status = 502;
             res.set_content(error.dump(), "application/json");
         }
+    });
+
+    // ------------------------------------------------------------------
+    // POST /api/newt/up
+    // Accepts { "endpoint": "https://...", "id": "...", "secret": "..." }
+    // Validates the three values, stores them in config/newt.env (0600)
+    // and starts the Newt container. The secret is never logged or returned.
+    // ------------------------------------------------------------------
+    svr.Post("/api/newt/up", [](const httplib::Request& req, httplib::Response& res) {
+        set_cors_headers(res);
+
+        try {
+            nlohmann::json body = nlohmann::json::parse(req.body);
+            newt_manager::Settings s;
+            s.endpoint = body.value("endpoint", "");
+            s.id       = body.value("id",       "");
+            s.secret   = body.value("secret",   "");
+
+            std::cout << "[Newt] up requested, endpoint=" << s.endpoint
+                      << " secret=" << (s.secret.empty() ? "(none)" : "(provided)") << "\n";
+
+            auto result = newt_manager::up(s);
+            nlohmann::json response = {
+                {"success", result.success},
+                {"output",  result.output},
+                {"error",   result.error}
+            };
+            res.status = result.success ? 200 : 400;
+            res.set_content(response.dump(), "application/json");
+
+        } catch (const std::exception& e) {
+            nlohmann::json error = { {"success", false}, {"error", "Invalid request body"} };
+            res.status = 400;
+            res.set_content(error.dump(), "application/json");
+        }
+    });
+
+    // ------------------------------------------------------------------
+    // POST /api/newt/down
+    // Removes the Newt container and the stored settings file.
+    // ------------------------------------------------------------------
+    svr.Post("/api/newt/down", [](const httplib::Request&, httplib::Response& res) {
+        set_cors_headers(res);
+
+        std::cout << "[Newt] down\n";
+        auto result = newt_manager::down();
+        nlohmann::json response = { {"success", result.success}, {"output", result.output} };
+        res.set_content(response.dump(), "application/json");
+    });
+
+    // ------------------------------------------------------------------
+    // GET /api/newt/status
+    // Returns { "state": "...", "configured": bool, "endpoint": "...", "id": "..." }
+    // ------------------------------------------------------------------
+    svr.Get("/api/newt/status", [](const httplib::Request&, httplib::Response& res) {
+        set_cors_headers(res);
+
+        auto s = newt_manager::status();
+        nlohmann::json response = {
+            {"state",      s.state},
+            {"configured", s.configured},
+            {"endpoint",   s.endpoint},
+            {"id",         s.id}
+        };
+        res.set_content(response.dump(), "application/json");
     });
 
     // ------------------------------------------------------------------

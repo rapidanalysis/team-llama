@@ -70,3 +70,6 @@ Testing/
 models/
 
 xerxes_backend
+
+# Device settings written at runtime (contains the Newt site secret)
+config/

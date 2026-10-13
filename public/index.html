@@ -296,6 +296,49 @@
           <button class="cmd-btn" data-command="ngrok_status" data-i18n="ctrl_ngrok_status">Check Status</button>
         </div>
       </div>
+
+      <!-- Newt (Pangolin) Dashboard -->
+      <div class="control-card">
+        <div class="control-card-header">
+          <span class="control-card-title" data-i18n="ctrl_newt_title">Newt (Pangolin)</span>
+          <span class="service-badge" id="badge-newt">—</span>
+        </div>
+        <p class="control-card-desc" data-i18n="ctrl_newt_desc">
+          Connect this device to a Pangolin server. The device dials out, so no inbound port is opened. Requires Docker.
+        </p>
+
+        <div class="mini-card-row">
+          <div class="mini-card mini-card--wide">
+            <span class="mini-card-label" data-i18n="ctrl_newt_endpoint">Endpoint</span>
+            <span class="mini-card-value" id="newt-endpoint">—</span>
+          </div>
+          <div class="mini-card">
+            <span class="mini-card-label" data-i18n="ctrl_newt_id">Site ID</span>
+            <span class="mini-card-value" id="newt-id">—</span>
+          </div>
+          <div class="mini-card">
+            <span class="mini-card-label" data-i18n="ctrl_newt_state">State</span>
+            <span class="mini-card-value" id="newt-state">—</span>
+          </div>
+        </div>
+
+        <div class="input-row">
+          <input class="text-input" type="text" id="newt-endpoint-input"
+                 placeholder="Pangolin endpoint (https://pangolin.example.com)" spellcheck="false" />
+        </div>
+        <div class="input-row">
+          <input class="text-input" type="text" id="newt-id-input"
+                 placeholder="Site ID" spellcheck="false" autocomplete="off" />
+          <input class="text-input" type="password" id="newt-secret-input"
+                 placeholder="Site secret" spellcheck="false" autocomplete="new-password" />
+          <button class="action-btn" id="newt-enable-btn" data-i18n="ctrl_newt_up">Enable</button>
+        </div>
+        <div class="btn-row">
+          <button class="cmd-btn" id="newt-disable-btn" data-i18n="ctrl_newt_down">Disable</button>
+          <button class="cmd-btn" data-command="newt_logs" data-i18n="ctrl_newt_logs">View Logs</button>
+        </div>
+        <div class="control-feedback" id="newt-feedback"></div>
+      </div>
     </section>
 
     <div class="divider"></div>

@@ -80,6 +80,8 @@ namespace system_ops {
           "fi" },
         // Tailscale extra info
         { "tailscale_ip",      "tailscale ip 2>&1" },
+        // Newt (Pangolin client). Started and stopped through /api/newt/*, logs here.
+        { "newt_logs",         "docker logs --tail 30 xerxes-newt 2>&1 || echo 'Newt is not installed.'" },
         // ngrok — per-port start commands (hardcoded, not user-influenced)
         // nohup prevents SIGHUP from killing ngrok when the popen() shell exits
         { "ngrok_start_8080",  "pkill ngrok 2>/dev/null; nohup ngrok http 8080 > /tmp/ngrok.log 2>&1 & echo 'ngrok tunnel starting on port 8080. Use Check Status to verify.'" },
@@ -213,7 +215,8 @@ namespace system_ops {
         static const std::map<std::string, const char*> SERVICE_COMMANDS = {
             { "smbd",       "systemctl is-active smbd 2>/dev/null" },
             { "tailscaled", "tailscale status 2>/dev/null | grep -qE '^[0-9]' && echo active || echo inactive" },
-            { "ngrok",      "pgrep -x ngrok > /dev/null && echo active || echo inactive" }
+            { "ngrok",      "pgrep -x ngrok > /dev/null && echo active || echo inactive" },
+            { "newt",       "docker inspect -f '{{.State.Running}}' xerxes-newt 2>/dev/null | grep -q true && echo active || echo inactive" }
         };
 
         auto it = SERVICE_COMMANDS.find(service_name);

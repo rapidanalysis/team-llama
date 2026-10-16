@@ -86,8 +86,11 @@
   "ctrl_llama_enable_title": "Enable Llama",
   "ctrl_llama_enable_desc": "Starts the llama service. The rest of the panel keeps working either way.",
   "ctrl_llama_model_title": "Model source",
-  "ctrl_llama_model_desc": "Enter a model location, then download it to this device.",
+  "ctrl_llama_model_desc": "Paste the download link of a .gguf file from Hugging Face, then download it to this device.",
   "ctrl_llama_download_btn": "Download",
   "ctrl_llama_installed_title": "Installed models",
-  "llama_installed_empty": "Enable llama to manage models"
+  "llama_installed_empty": "No models installed yet. Download one above.",
+  "chat_launcher": "Ask Xerxes AI",
+  "chat_title": "Xerxes Assistant",
+  "chat_greeting": "Hello! I'm your Xerxes Pi assistant. How can I help you manage your server today?"
 }

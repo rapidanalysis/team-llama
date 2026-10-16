@@ -429,8 +429,10 @@
             <span class="toggle-slider"></span>
           </label>
           <span class="control-card-title" data-i18n="ctrl_llama_enable_title">Enable Llama</span>
+          <span class="service-badge" id="badge-llama">—</span>
         </div>
         <p class="control-card-desc" data-i18n="ctrl_llama_enable_desc">Starts the llama service. The rest of the panel keeps working either way.</p>
+        <div class="control-feedback" id="llama-enable-feedback"></div>
       </div>
 
       <!-- Model source -->
@@ -438,10 +440,10 @@
         <div class="control-card-header">
           <span class="control-card-title" data-i18n="ctrl_llama_model_title">Model source</span>
         </div>
-        <p class="control-card-desc" data-i18n="ctrl_llama_model_desc">Enter a model location, then download it to this device.</p>
+        <p class="control-card-desc" data-i18n="ctrl_llama_model_desc">Paste the download link of a .gguf file from Hugging Face, then download it to this device.</p>
         <div class="input-row">
           <input class="text-input" type="text" id="llama-model-url"
-                 placeholder="Hugging Face repo or direct URL" spellcheck="false" />
+                 placeholder="https://huggingface.co/…/resolve/main/model.gguf" spellcheck="false" />
           <button class="action-btn" id="llama-download-btn" data-i18n="ctrl_llama_download_btn">Download</button>
         </div>
         <div class="control-feedback" id="llama-model-feedback"></div>
@@ -453,9 +455,10 @@
           <span class="control-card-title" data-i18n="ctrl_llama_installed_title">Installed models</span>
         </div>
         <div class="empty-state" id="llama-installed-empty" data-i18n="llama_installed_empty">
-          Enable llama to manage models
+          No models installed yet. Download one above.
         </div>
         <div class="model-list" id="llama-installed-list" hidden></div>
+        <div class="control-feedback" id="llama-installed-feedback"></div>
       </div>
     </section>
 
@@ -465,6 +468,31 @@
   <footer class="footer">
     <span data-i18n="footer_version">v0.1.1 — Rapid Analysis PTY LTD</span>
   </footer>
+
+  <!-- ── ASK XERXES AI — chat with the local model, available on every tab ── -->
+  <button class="chat-launcher" id="chat-launcher" type="button"
+          aria-controls="chat-panel" aria-expanded="false" data-i18n="chat_launcher">Ask Xerxes AI</button>
+
+  <aside class="chat-panel" id="chat-panel" aria-label="Xerxes Assistant" aria-hidden="true">
+    <div class="chat-header">
+      <span class="chat-status-dot" id="chat-status-dot" title="Checking Llama status..."></span>
+      <span class="chat-title" data-i18n="chat_title">Xerxes Assistant</span>
+      <button class="chat-close" id="chat-close" type="button" aria-label="Close chat">&times;</button>
+    </div>
+    <div class="chat-messages" id="chat-messages" aria-live="polite">
+      <div class="chat-msg assistant" data-i18n="chat_greeting">Hello! I'm your Xerxes Pi assistant. How can I help you manage your server today?</div>
+    </div>
+    <form class="chat-input-row" id="chat-form">
+      <input class="chat-input" id="chat-input" type="text" placeholder="Type a message..."
+             autocomplete="off" aria-label="Message" />
+      <button class="chat-send" id="chat-send" type="submit" aria-label="Send">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>
+        </svg>
+      </button>
+    </form>
+  </aside>
 
   <script src="app.js"></script>
 </body>

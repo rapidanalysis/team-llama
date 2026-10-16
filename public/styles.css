@@ -824,7 +824,43 @@ body {
 }
 .toggle-switch input:checked + .toggle-slider::before {
   transform: translateX(18px);
+  background: var(--bg-card);
 }
+.toggle-switch input:focus-visible + .toggle-slider {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.toggle-switch input:disabled + .toggle-slider {
+  opacity: 0.5;
+  cursor: wait;
+}
+
+/* Status badge sits at the far right of the Enable card header */
+#llama .service-badge { margin-left: auto; }
+
+/* Installed models: one selectable row per .gguf file */
+.model-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.model-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  cursor: pointer;
+}
+.model-row:has(input:checked) { border-color: var(--accent); }
+.model-row input { margin: 0; accent-color: var(--accent); }
+.model-row.disabled { cursor: default; opacity: 0.6; }
+.model-name { overflow-wrap: anywhere; }
 
 /* Give control-card-header room for the toggle beside the title */
 #llama .control-card-header {
@@ -835,10 +871,195 @@ body {
 
 /* Empty state for installed models */
 .empty-state {
-  background: var(--bg-page, #f4f4f5);
+  background: var(--bg);
   border-radius: 6px;
   padding: 28px;
   text-align: center;
   color: var(--text-secondary, #6b6b6b);
   font-size: 14px;
+}
+
+/* ── ASK XERXES AI (chat panel) ── */
+:root {
+  --chat-navy:        #2b2d42;
+  --chat-navy-text:   #ffffff;
+  --chat-placeholder: #9a9cb3;
+  --chat-blue:        #2563eb;
+  --chat-blue-hover:  #1d4ed8;
+}
+[data-theme="dark"] {
+  --chat-navy:        #34364f;
+}
+
+.chat-launcher {
+  position: fixed;
+  right: 24px;
+  bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+  z-index: 150;
+  padding: 14px 26px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font-family: var(--font);
+  font-size: 15px;
+  font-weight: 600;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.12);
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s;
+}
+.chat-launcher:hover { transform: translateY(-1px); box-shadow: 0 6px 18px rgba(0,0,0,0.16); }
+.chat-launcher:focus-visible { outline: 2px solid var(--chat-blue); outline-offset: 3px; }
+
+.chat-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 150;
+  width: 450px;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-card);
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 24px rgba(0,0,0,0.08);
+  transform: translateX(100%);
+  visibility: hidden;
+  transition: transform 0.25s ease, visibility 0s linear 0.25s;
+}
+.chat-panel.open {
+  transform: none;
+  visibility: visible;
+  transition: transform 0.25s ease, visibility 0s;
+}
+
+.chat-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 24px;
+  padding-top: calc(18px + env(safe-area-inset-top, 0px));
+  border-bottom: 1px solid var(--border);
+}
+.chat-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--status-idle);
+  flex: none;
+}
+.chat-status-dot.on  { background: var(--status-on); }
+.chat-status-dot.off { background: var(--status-off); }
+.chat-title { font-size: 18px; font-weight: 600; }
+.chat-close {
+  margin-left: auto;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+}
+.chat-close:hover { background: var(--bg); color: var(--text-primary); }
+.chat-close:focus-visible { outline: 2px solid var(--chat-blue); }
+
+.chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.chat-msg {
+  max-width: 80%;
+  padding: 12px 18px;
+  border-radius: 14px;
+  font-size: 15px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.chat-msg.assistant { align-self: flex-start; background: var(--chat-navy); color: var(--chat-navy-text); }
+.chat-msg.user      { align-self: flex-end;   background: var(--chat-blue); color: #fff; }
+.chat-msg.error {
+  align-self: flex-start;
+  background: var(--bg);
+  color: var(--text-primary);
+  border: 1px solid var(--status-off);
+  font-size: 14px;
+}
+.chat-msg.error button {
+  display: block;
+  margin-top: 8px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-primary);
+  font: 500 13px var(--font);
+  cursor: pointer;
+}
+
+/* Three-dot "thinking" indicator */
+.chat-msg.typing { display: flex; gap: 5px; padding: 16px 18px; }
+.chat-msg.typing span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--chat-navy-text);
+  opacity: 0.4;
+  animation: chat-dot 1.2s infinite ease-in-out;
+}
+.chat-msg.typing span:nth-child(2) { animation-delay: 0.15s; }
+.chat-msg.typing span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes chat-dot {
+  0%, 60%, 100% { opacity: 0.4; transform: none; }
+  30%           { opacity: 1;   transform: translateY(-3px); }
+}
+
+.chat-input-row {
+  display: flex;
+  gap: 10px;
+  padding: 18px 20px;
+  padding-bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  border-top: 1px solid var(--border);
+}
+.chat-input {
+  flex: 1;
+  min-width: 0;
+  padding: 12px 18px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  background: var(--chat-navy);
+  color: var(--chat-navy-text);
+  font-family: var(--font);
+  font-size: 15px;
+  outline: none;
+}
+.chat-input::placeholder { color: var(--chat-placeholder); }
+.chat-input:focus { border-color: var(--chat-blue); }
+.chat-send {
+  flex: none;
+  width: 56px;
+  border: none;
+  border-radius: 12px;
+  background: var(--chat-blue);
+  color: #fff;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.chat-send:hover    { background: var(--chat-blue-hover); }
+.chat-send:disabled { opacity: 0.5; cursor: wait; }
+.chat-send:focus-visible { outline: 2px solid var(--chat-blue); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .chat-panel, .chat-panel.open, .chat-launcher { transition: none; }
+  .chat-msg.typing span { animation: none; opacity: 0.8; }
 }

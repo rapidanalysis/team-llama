@@ -1,10 +1,12 @@
 #include "newt_manager.h"
 #include <cctype>
+#include <chrono>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <mutex>
 #include <sstream>
+#include <thread>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -16,8 +18,8 @@ namespace {
 
 // Our own name, so we never remove a newt container someone else started on the device.
 const std::string kContainer = "xerxes-newt";
-// Pinned so an upstream release cannot change behaviour without a code change.
-const std::string kImage = "fosrl/newt:1.18.1";
+// latest, so update() can move to new releases. The sponsor asked for Newt to update itself.
+const std::string kImage = "fosrl/newt:latest";
 // Outside public/, so the web server never serves it.
 const std::string kConfigDir = "config";
 const std::string kEnvFile = "config/newt.env";
@@ -165,6 +167,41 @@ ActionResult down() {
     if (c.exit_code != 0)
         return {true, "Newt was not running. Stored settings removed.", ""};
     return {true, "Newt stopped. Stored settings removed.", ""};
+}
+
+ActionResult update() {
+    std::lock_guard<std::mutex> guard(lock());
+
+    if (!fs::exists(kEnvFile))
+        return {false, "", "Newt is not set up. Enable it first."};
+
+    std::string running = trim(run("docker inspect -f '{{.Image}}' " + kContainer + " 2>/dev/null").output);
+
+    Capture pull = run("docker pull " + kImage + " 2>&1");
+    if (pull.exit_code != 0)
+        return {false, trim(pull.output), "Could not download the latest Newt image."};
+
+    std::string latest = trim(run("docker image inspect -f '{{.Id}}' " + kImage + " 2>/dev/null").output);
+    if (!running.empty() && running == latest)
+        return {true, "Newt is already up to date.", ""};
+
+    run("docker rm -f " + kContainer + " >/dev/null 2>&1");
+    Capture c = run(build_run_command(kEnvFile) + " 2>&1");
+    if (c.exit_code != 0)
+        return {false, trim(c.output), "The new image was downloaded but Newt could not be restarted."};
+    return {true, "Newt updated to the latest image and restarted.", ""};
+}
+
+void start_auto_update() {
+    static std::once_flag once;
+    std::call_once(once, [] {
+        std::thread([] {
+            for (;;) {
+                std::this_thread::sleep_for(std::chrono::hours(24));
+                if (fs::exists(kEnvFile)) update();
+            }
+        }).detach();
+    });
 }
 
 StatusResult status() {

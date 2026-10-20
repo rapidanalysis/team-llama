@@ -92,7 +92,7 @@ TEST(run_command_has_no_secret_and_no_privileges) {
     std::string cmd = newt_manager::build_run_command("config/newt.env");
     ASSERT_TRUE(cmd.find("--env-file config/newt.env") != std::string::npos);
     ASSERT_TRUE(cmd.find("--name xerxes-newt ") != std::string::npos);
-    ASSERT_TRUE(cmd.find("fosrl/newt:1.18.1") != std::string::npos);
+    ASSERT_TRUE(cmd.find("fosrl/newt:latest") != std::string::npos);
     ASSERT_TRUE(cmd.find("--restart unless-stopped") != std::string::npos);
     ASSERT_TRUE(cmd.find("NEWT_SECRET") == std::string::npos);
     ASSERT_TRUE(cmd.find("--privileged") == std::string::npos);

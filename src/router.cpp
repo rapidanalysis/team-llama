@@ -483,6 +483,26 @@ void setup_routes(httplib::Server& svr) {
     });
 
     // ------------------------------------------------------------------
+    // POST /api/newt/update
+    // Pulls the latest Newt image and restarts the container if it changed.
+    // The same check also runs once a day in the background.
+    // ------------------------------------------------------------------
+    newt_manager::start_auto_update();
+    svr.Post("/api/newt/update", [](const httplib::Request&, httplib::Response& res) {
+        set_cors_headers(res);
+
+        std::cout << "[Newt] update\n";
+        auto result = newt_manager::update();
+        nlohmann::json response = {
+            {"success", result.success},
+            {"output",  result.output},
+            {"error",   result.error}
+        };
+        res.status = result.success ? 200 : 400;
+        res.set_content(response.dump(), "application/json");
+    });
+
+    // ------------------------------------------------------------------
     // GET /api/newt/status
     // Returns { "state": "...", "configured": bool, "endpoint": "...", "id": "..." }
     // ------------------------------------------------------------------

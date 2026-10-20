@@ -88,7 +88,8 @@ navLinks.forEach(function (link) {
 
     // Lazy-load section data
     if (target === "network") loadNetworkInfo();
-    if (target === "tunnels") { loadTailscaleDetails(); loadNewtStatus(); }
+    if (target === "tunnels") loadTailscaleDetails();
+    if (target === "newt")    loadNewtStatus();
     if (target === "llama")   { loadLlamaStatus(); loadLlamaModels(); }
   });
 });
@@ -591,6 +592,31 @@ document.getElementById("newt-disable-btn").addEventListener("click", function (
   };
   xhr.onerror   = function () { setPopupOutput("Error: Could not reach backend."); btn.disabled = false; };
   xhr.ontimeout = function () { setPopupOutput("Error: Request timed out.");       btn.disabled = false; };
+  xhr.send("{}");
+});
+
+document.getElementById("newt-update-btn").addEventListener("click", function () {
+  var btn = this;
+  showOutputPopup("Newt — Update", "Checking for a newer Newt image...");
+  btn.disabled = true;
+
+  var xhr = new XMLHttpRequest();
+  xhr.open("POST", API_BASE + "/api/newt/update", true);
+  xhr.setRequestHeader("Content-Type", "application/json");
+  // Pulling the image can take a few minutes on a slow link.
+  xhr.timeout = 300000;
+  xhr.onload = function () {
+    try {
+      var data = JSON.parse(xhr.responseText);
+      setPopupOutput(data.success ? (data.output || "Done.")
+                                  : ((data.error || "Update failed.") + (data.output ? "\n\n" + data.output : "")));
+    } catch (e) { setPopupOutput(xhr.responseText); }
+    btn.disabled = false;
+    loadServices();
+    loadNewtStatus();
+  };
+  xhr.onerror   = function () { setPopupOutput("Error: Could not reach backend."); btn.disabled = false; };
+  xhr.ontimeout = function () { setPopupOutput("Error: Request timed out. The image may still be downloading; check View Logs."); btn.disabled = false; };
   xhr.send("{}");
 });
 

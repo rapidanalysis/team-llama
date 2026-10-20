@@ -41,4 +41,12 @@ ActionResult up(const Settings& s);
 ActionResult down();
 StatusResult status();
 
+// Pulls the latest image and, if it is newer than the one running, recreates
+// the container with the saved settings.
+ActionResult update();
+
+// Starts a background thread that calls update() once a day while Newt is
+// set up. Safe to call more than once.
+void start_auto_update();
+
 }

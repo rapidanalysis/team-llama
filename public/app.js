@@ -818,7 +818,8 @@ function submitRunContainer(payload) {
         dockerOutput.textContent = data.output || "[ok] Container started.";
         showFeedback(runFeedback, "Container started successfully.", "success");
       } else {
-        dockerOutput.textContent = data.error || data.output || xhr.responseText;
+        // Show the summary AND Docker's own message (e.g. "name already in use"), not just the exit code
+        dockerOutput.textContent = [data.error, data.output].filter(Boolean).join("\n\n") || xhr.responseText;
         showFeedback(runFeedback, data.error || "Failed to start container.", "error");
       }
     } catch (e) {

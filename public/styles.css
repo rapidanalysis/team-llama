@@ -1063,3 +1063,6 @@ body {
   .chat-panel, .chat-panel.open, .chat-launcher { transition: none; }
   .chat-msg.typing span { animation: none; opacity: 0.8; }
 }
+
+/* Newt card: give the form labels one width so the inputs line up */
+#newt-card .input-label { min-width: 72px; }

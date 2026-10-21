@@ -3,6 +3,7 @@
 #include "network_config.h"
 #include "docker_manager.h"
 #include "llama_manager.h"
+#include "newt_manager.h"
 #include "json.hpp"
 #include <iostream>
 #include <cctype>
@@ -307,6 +308,92 @@ void setup_routes(httplib::Server& svr) {
             res.status = 400;
             res.set_content(error.dump(), "application/json");
         }
+    });
+
+    // ------------------------------------------------------------------
+    // POST /api/newt/enable
+    // Accepts { "endpoint": "https://pangolin.example.com",
+    //           "newt_id": "...", "secret": "..." } and (re)starts the
+    // xerxes-newt container. An empty secret reuses the saved one.
+    // The secret is never logged or returned.
+    // ------------------------------------------------------------------
+    svr.Post("/api/newt/enable", [](const httplib::Request& req, httplib::Response& res) {
+        set_cors_headers(res);
+
+        try {
+            nlohmann::json body = nlohmann::json::parse(req.body);
+            std::string endpoint = body.value("endpoint", "");
+            std::string newt_id  = body.value("newt_id",  "");
+            std::string secret   = body.value("secret",   "");
+
+            std::cout << "[Newt] enable endpoint=" << endpoint << " id=" << newt_id
+                      << " secret=" << (secret.empty() ? "(saved)" : "(provided)") << "\n";
+
+            auto result = newt_manager::enable(endpoint, newt_id, secret);
+            nlohmann::json response = {
+                {"success", result.success},
+                {"error",   result.error},
+                {"output",  result.output}
+            };
+            res.status = result.success ? 200 : 400;
+            res.set_content(response.dump(), "application/json");
+
+        } catch (const std::exception& e) {
+            nlohmann::json error = { {"success", false}, {"error", "Invalid request body"} };
+            res.status = 400;
+            res.set_content(error.dump(), "application/json");
+        }
+    });
+
+    // ------------------------------------------------------------------
+    // POST /api/newt/disable
+    // Stops and removes the xerxes-newt container (saved config is kept).
+    // ------------------------------------------------------------------
+    svr.Post("/api/newt/disable", [](const httplib::Request&, httplib::Response& res) {
+        set_cors_headers(res);
+
+        std::cout << "[Newt] disable\n";
+        auto result = newt_manager::disable();
+        nlohmann::json response = {
+            {"success", result.success},
+            {"error",   result.error},
+            {"output",  result.output}
+        };
+        res.status = result.success ? 200 : 500;
+        res.set_content(response.dump(), "application/json");
+    });
+
+    // ------------------------------------------------------------------
+    // GET /api/newt/status
+    // Returns { "state", "container", "endpoint", "newt_id",
+    //           "has_secret", "detail" }. state is one of: connected,
+    // connecting, auth_failed, error, stopped, not_configured,
+    // docker_unavailable.
+    // ------------------------------------------------------------------
+    svr.Get("/api/newt/status", [](const httplib::Request&, httplib::Response& res) {
+        set_cors_headers(res);
+
+        auto s = newt_manager::status();
+        nlohmann::json response = {
+            {"state",      s.state},
+            {"container",  s.container},
+            {"endpoint",   s.endpoint},
+            {"newt_id",    s.newt_id},
+            {"has_secret", s.has_secret},
+            {"detail",     s.detail}
+        };
+        res.set_content(response.dump(), "application/json");
+    });
+
+    // ------------------------------------------------------------------
+    // GET /api/newt/logs
+    // Returns { "output": "<last 100 lines of the Newt container log>" }.
+    // ------------------------------------------------------------------
+    svr.Get("/api/newt/logs", [](const httplib::Request&, httplib::Response& res) {
+        set_cors_headers(res);
+
+        nlohmann::json response = { {"output", newt_manager::logs(100)} };
+        res.set_content(response.dump(), "application/json");
     });
 
     // ------------------------------------------------------------------

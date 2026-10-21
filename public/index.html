@@ -296,6 +296,55 @@
           <button class="cmd-btn" data-command="ngrok_status" data-i18n="ctrl_ngrok_status">Check Status</button>
         </div>
       </div>
+
+      <!-- Newt (Pangolin) Dashboard -->
+      <div class="control-card" id="newt-card">
+        <div class="control-card-header">
+          <span class="control-card-title" data-i18n="ctrl_newt_title">Newt (Pangolin)</span>
+          <span class="service-badge" id="badge-newt">—</span>
+        </div>
+        <p class="control-card-desc" data-i18n="ctrl_newt_desc">
+          Open-source alternative to ngrok. Connects this device to your Pangolin server over a secure WireGuard tunnel. Create a Site in Pangolin to get a Newt ID and secret.
+        </p>
+
+        <div class="mini-card-row">
+          <div class="mini-card">
+            <span class="mini-card-label" data-i18n="newt_label_tunnel">Tunnel</span>
+            <span class="mini-card-value" id="newt-state">—</span>
+          </div>
+          <div class="mini-card mini-card--wide">
+            <span class="mini-card-label" data-i18n="newt_label_server">Pangolin Server</span>
+            <span class="mini-card-value" id="newt-endpoint-display">—</span>
+          </div>
+          <div class="mini-card">
+            <span class="mini-card-label" data-i18n="newt_label_site">Newt ID</span>
+            <span class="mini-card-value" id="newt-id-display">—</span>
+          </div>
+        </div>
+
+        <div class="input-row">
+          <label class="input-label" for="newt-endpoint" data-i18n="newt_input_endpoint">Endpoint</label>
+          <input class="text-input" type="url" id="newt-endpoint"
+                 placeholder="https://pangolin.example.com" spellcheck="false" autocomplete="off" maxlength="255" />
+        </div>
+        <div class="input-row">
+          <label class="input-label" for="newt-id" data-i18n="newt_input_id">Newt ID</label>
+          <input class="text-input" type="text" id="newt-id"
+                 placeholder="From your Pangolin Site" spellcheck="false" autocomplete="off" maxlength="64" />
+        </div>
+        <div class="input-row">
+          <label class="input-label" for="newt-secret" data-i18n="newt_input_secret">Secret</label>
+          <input class="text-input" type="password" id="newt-secret"
+                 placeholder="Newt secret" spellcheck="false" autocomplete="new-password" maxlength="128" />
+        </div>
+        <div class="btn-row">
+          <button class="action-btn" id="newt-enable-btn" data-i18n="ctrl_newt_enable">Enable</button>
+          <button class="cmd-btn newt-btn" id="newt-disable-btn" data-i18n="ctrl_newt_disable">Disable</button>
+          <button class="cmd-btn newt-btn" id="newt-status-btn"  data-i18n="ctrl_newt_status">Check Status</button>
+          <button class="cmd-btn newt-btn" id="newt-logs-btn"    data-i18n="ctrl_newt_logs">View Logs</button>
+        </div>
+        <div class="control-feedback" id="newt-feedback"></div>
+      </div>
     </section>
 
     <div class="divider"></div>

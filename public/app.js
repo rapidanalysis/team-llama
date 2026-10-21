@@ -240,7 +240,7 @@ document.getElementById("clear-output").addEventListener("click", function () {
 });
 
 /* ── GENERIC CMD-BTN (non-system — shows output popup) ── */
-document.querySelectorAll(".cmd-btn:not(.sys-cmd)").forEach(function (btn) {
+document.querySelectorAll(".cmd-btn:not(.sys-cmd):not(.newt-btn)").forEach(function (btn) {
   btn.addEventListener("click", function () {
     runPopupCommand(btn.getAttribute("data-command"), btn);
   });
@@ -590,6 +590,154 @@ function fetchNgrokUrl(localPort, attempt) {
 
   xhr.send(JSON.stringify({ command: "ngrok_url" }));
 }
+
+/* ── NEWT (PANGOLIN) DASHBOARD ── */
+// Newt runs as the "xerxes-newt" Docker container, managed by /api/newt/*.
+// The secret is sent once on Enable and is never returned by the backend.
+var newtBadge        = document.getElementById("badge-newt");
+var newtStateEl      = document.getElementById("newt-state");
+var newtEndpointShow = document.getElementById("newt-endpoint-display");
+var newtIdShow       = document.getElementById("newt-id-display");
+var newtEndpointIn   = document.getElementById("newt-endpoint");
+var newtIdIn         = document.getElementById("newt-id");
+var newtSecretIn     = document.getElementById("newt-secret");
+var newtEnableBtn    = document.getElementById("newt-enable-btn");
+var newtFeedback     = document.getElementById("newt-feedback");
+var newtPollTimer    = null;
+
+var NEWT_STATES = {
+  connected:          { badge: "connected",   cls: "badge-active",   label: "Connected" },
+  connecting:         { badge: "connecting",  cls: "badge-neutral",  label: "Connecting..." },
+  auth_failed:        { badge: "rejected",    cls: "badge-failed",   label: "Rejected" },
+  error:              { badge: "error",       cls: "badge-failed",   label: "Can't reach server" },
+  stopped:            { badge: "stopped",     cls: "badge-inactive", label: "Stopped" },
+  not_configured:     { badge: "not set up",  cls: "badge-inactive", label: "Not set up" },
+  docker_unavailable: { badge: "docker error", cls: "badge-failed",  label: "Docker unavailable" }
+};
+
+// Plain-language hints for the states that need the user to do something
+var NEWT_HINTS = {
+  auth_failed:        "Pangolin rejected the Newt ID or secret. Check them against your Site in Pangolin.",
+  error:              "Newt can't reach the Pangolin server. Check the endpoint address and this device's internet connection.",
+  docker_unavailable: "Newt needs Docker, and the backend can't use it."
+};
+
+function renderNewtStatus(data) {
+  var st = NEWT_STATES[data.state] || { badge: data.state || "unknown", cls: "badge-neutral", label: data.state || "Unknown" };
+  newtBadge.textContent   = st.badge;
+  newtBadge.className     = "service-badge " + st.cls;
+  newtStateEl.textContent = st.label;
+  newtEndpointShow.textContent = data.endpoint || "—";
+  newtIdShow.textContent       = data.newt_id  || "—";
+
+  // Pre-fill the form with the saved settings (never the secret)
+  if (!newtEndpointIn.value && data.endpoint) newtEndpointIn.value = data.endpoint;
+  if (!newtIdIn.value && data.newt_id)        newtIdIn.value       = data.newt_id;
+  newtSecretIn.placeholder = data.has_secret ? "Saved — leave blank to keep it" : "Newt secret";
+
+  if (NEWT_HINTS[data.state]) {
+    showFeedback(newtFeedback, NEWT_HINTS[data.state] + (data.detail ? " (" + data.detail + ")" : ""), "error");
+  } else if (data.state === "connected") {
+    showFeedback(newtFeedback, "Tunnel is up. This device is reachable through Pangolin.", "success");
+  }
+}
+
+// llamaRequest() (Llama section) is a generic JSON XHR helper — reused here.
+function loadNewtStatus(cb) {
+  llamaRequest("GET", "/api/newt/status", null, 10000, function (err, data) {
+    if (err) {
+      newtBadge.textContent = "unknown";
+      newtBadge.className   = "service-badge badge-neutral";
+      if (cb) cb(null);
+      return;
+    }
+    renderNewtStatus(data);
+    if (cb) cb(data.state);
+  });
+}
+
+// After Enable, Newt needs a few seconds to log in and bring the tunnel up.
+// Poll every 3 s for up to ~45 s until it settles.
+function pollNewtStatus(triesLeft) {
+  clearTimeout(newtPollTimer);
+  loadNewtStatus(function (state) {
+    if (state === "connecting" && triesLeft > 0) {
+      newtPollTimer = setTimeout(function () { pollNewtStatus(triesLeft - 1); }, 3000);
+    } else if (state === "connecting") {
+      showFeedback(newtFeedback, "Still connecting. Click View Logs to see what Newt is doing.", "error");
+    }
+  });
+}
+
+newtEnableBtn.addEventListener("click", function () {
+  var endpoint = newtEndpointIn.value.trim();
+  var newtId   = newtIdIn.value.trim();
+  var secret   = newtSecretIn.value.trim();
+  var hasSaved = newtSecretIn.placeholder.indexOf("Saved") === 0;
+
+  if (!/^https?:\/\/[A-Za-z0-9][A-Za-z0-9.\-:\/_]*$/.test(endpoint)) {
+    showFeedback(newtFeedback, "Enter the Pangolin endpoint, e.g. https://pangolin.example.com", "error");
+    return;
+  }
+  if (!/^[A-Za-z0-9]{1,64}$/.test(newtId)) {
+    showFeedback(newtFeedback, "The Newt ID should be letters and numbers only.", "error");
+    return;
+  }
+  if (secret ? !/^[A-Za-z0-9]{1,128}$/.test(secret) : !hasSaved) {
+    showFeedback(newtFeedback, secret ? "The secret should be letters and numbers only." : "Enter the Newt secret.", "error");
+    return;
+  }
+
+  clearTimeout(newtPollTimer);
+  newtEnableBtn.disabled    = true;
+  newtEnableBtn.textContent = "Enabling...";
+  showFeedback(newtFeedback, "Starting Newt... the first time can take a minute while it downloads.", "");
+
+  llamaRequest("POST", "/api/newt/enable", { endpoint: endpoint, newt_id: newtId, secret: secret }, 300000,
+    function (err, data) {
+      newtEnableBtn.disabled    = false;
+      newtEnableBtn.textContent = "Enable";
+      if (err) { showFeedback(newtFeedback, err, "error"); return; }
+      if (!data.success) {
+        showFeedback(newtFeedback, data.error || "Could not start Newt.", "error");
+        if (data.output) showOutputPopup("Newt — Enable", data.output);
+        return;
+      }
+      newtSecretIn.value = "";
+      showFeedback(newtFeedback, "Newt started. Waiting for the tunnel to connect...", "");
+      pollNewtStatus(15);
+    });
+});
+
+document.getElementById("newt-disable-btn").addEventListener("click", function () {
+  var btn = this;
+  clearTimeout(newtPollTimer);
+  btn.disabled = true;
+  btn.classList.add("running");
+  llamaRequest("POST", "/api/newt/disable", null, 30000, function (err, data) {
+    btn.disabled = false;
+    btn.classList.remove("running");
+    if (err)               showFeedback(newtFeedback, err, "error");
+    else if (!data.success) showFeedback(newtFeedback, data.error || "Could not stop Newt.", "error");
+    else                   showFeedback(newtFeedback, "Newt stopped. Your settings are saved for next time.", "success");
+    loadNewtStatus();
+  });
+});
+
+document.getElementById("newt-status-btn").addEventListener("click", function () {
+  showFeedback(newtFeedback, "", "");
+  loadNewtStatus();
+});
+
+document.getElementById("newt-logs-btn").addEventListener("click", function () {
+  showOutputPopup("Newt — Logs", "Loading...");
+  llamaRequest("GET", "/api/newt/logs", null, 10000, function (err, data) {
+    if (err) { setPopupOutput(err); return; }
+    setPopupOutput(data.output && data.output.indexOf("No such container") === -1
+      ? data.output
+      : "No logs yet. Newt isn't running. Fill in the details above and click Enable.");
+  });
+});
 
 /* ── SHARED FEEDBACK HELPER ── */
 function showFeedback(el, msg, type) {
@@ -1209,3 +1357,4 @@ chatForm.addEventListener("submit", function (e) {
 loadLang();
 loadDashboard();
 loadServices();
+loadNewtStatus();

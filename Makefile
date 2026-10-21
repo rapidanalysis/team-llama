@@ -5,7 +5,7 @@
 #   make bundle     build xerxes_install.sh — a single self-extracting script
 #                   containing src/ include/ public/ that compiles itself on
 #                   the target. Paste it into any terminal and run it.
-#   make test       build and run tests/test_utils.cpp
+#   make test       build and run tests/test_utils.cpp and tests/test_newt.cpp
 #   make clean
 #
 # Cross-compile:  make CXX=aarch64-linux-gnu-g++ TARGET=xerxes_backend_arm64
@@ -78,11 +78,15 @@ xerxes_install.sh: bundle_stub.sh $(SRCS) $(wildcard include/*.h) $(wildcard pub
 	chmod +x $@
 	@echo "Wrote $@ ($$(wc -c < $@) bytes). Paste it into a terminal and run: bash xerxes_install.sh"
 
-test: build/test_utils
+test: build/test_utils build/test_newt
 	./build/test_utils
+	./build/test_newt
 
 build/test_utils: tests/test_utils.cpp src/utils.cpp | build
 	$(CXX) $(CXXFLAGS) -o $@ $^ $(LDFLAGS)
+
+build/test_newt: tests/test_newt.cpp src/newt_manager.cpp | build
+	$(CXX) $(CXXFLAGS) -o $@ $^
 
 LLAMA_DIR        := third_party/llama.cpp
 LLAMA_SERVER_BIN := $(LLAMA_DIR)/build/bin/llama-server

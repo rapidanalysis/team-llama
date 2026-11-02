@@ -24,6 +24,7 @@
       <a href="#network"   class="nav-link" data-section="network" data-i18n="nav_network">Network</a>
       <a href="#tunnels"   class="nav-link" data-section="tunnels" data-i18n="nav_tunnels">Tunnels</a>
       <a href="#docker"    class="nav-link" data-section="docker" data-i18n="nav_docker">Docker</a>
+      <a href="#llama"     class="nav-link" data-section="llama"  data-i18n="nav_llama">Llama</a>
     </nav>
 
     <div class="navbar-actions">
@@ -295,6 +296,55 @@
           <button class="cmd-btn" data-command="ngrok_status" data-i18n="ctrl_ngrok_status">Check Status</button>
         </div>
       </div>
+
+      <!-- Newt (Pangolin) Dashboard -->
+      <div class="control-card" id="newt-card">
+        <div class="control-card-header">
+          <span class="control-card-title" data-i18n="ctrl_newt_title">Newt (Pangolin)</span>
+          <span class="service-badge" id="badge-newt">—</span>
+        </div>
+        <p class="control-card-desc" data-i18n="ctrl_newt_desc">
+          Open-source alternative to ngrok. Connects this device to your Pangolin server over a secure WireGuard tunnel. Create a Site in Pangolin to get a Newt ID and secret.
+        </p>
+
+        <div class="mini-card-row">
+          <div class="mini-card">
+            <span class="mini-card-label" data-i18n="newt_label_tunnel">Tunnel</span>
+            <span class="mini-card-value" id="newt-state">—</span>
+          </div>
+          <div class="mini-card mini-card--wide">
+            <span class="mini-card-label" data-i18n="newt_label_server">Pangolin Server</span>
+            <span class="mini-card-value" id="newt-endpoint-display">—</span>
+          </div>
+          <div class="mini-card">
+            <span class="mini-card-label" data-i18n="newt_label_site">Newt ID</span>
+            <span class="mini-card-value" id="newt-id-display">—</span>
+          </div>
+        </div>
+
+        <div class="input-row">
+          <label class="input-label" for="newt-endpoint" data-i18n="newt_input_endpoint">Endpoint</label>
+          <input class="text-input" type="url" id="newt-endpoint"
+                 placeholder="https://pangolin.example.com" spellcheck="false" autocomplete="off" maxlength="255" />
+        </div>
+        <div class="input-row">
+          <label class="input-label" for="newt-id" data-i18n="newt_input_id">Newt ID</label>
+          <input class="text-input" type="text" id="newt-id"
+                 placeholder="From your Pangolin Site" spellcheck="false" autocomplete="off" maxlength="64" />
+        </div>
+        <div class="input-row">
+          <label class="input-label" for="newt-secret" data-i18n="newt_input_secret">Secret</label>
+          <input class="text-input" type="password" id="newt-secret"
+                 placeholder="Newt secret" spellcheck="false" autocomplete="new-password" maxlength="128" />
+        </div>
+        <div class="btn-row">
+          <button class="action-btn" id="newt-enable-btn" data-i18n="ctrl_newt_enable">Enable</button>
+          <button class="cmd-btn newt-btn" id="newt-disable-btn" data-i18n="ctrl_newt_disable">Disable</button>
+          <button class="cmd-btn newt-btn" id="newt-status-btn"  data-i18n="ctrl_newt_status">Check Status</button>
+          <button class="cmd-btn newt-btn" id="newt-logs-btn"    data-i18n="ctrl_newt_logs">View Logs</button>
+        </div>
+        <div class="control-feedback" id="newt-feedback"></div>
+      </div>
     </section>
 
     <div class="divider"></div>
@@ -415,12 +465,83 @@
       </div>
     </section>
 
+    <!-- -- LLAMA -- -->
+    <section id="llama" class="section">
+      <h2 class="section-title" data-i18n="nav_llama">Llama</h2>
+      <p class="section-desc" data-i18n="llama_desc">Run a language model on this device. Off by default so it uses no memory.</p>
+
+      <!-- Enable -->
+      <div class="control-card">
+        <div class="control-card-header">
+          <label class="toggle-switch">
+            <input type="checkbox" id="llama-enable-toggle">
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="control-card-title" data-i18n="ctrl_llama_enable_title">Enable Llama</span>
+          <span class="service-badge" id="badge-llama">—</span>
+        </div>
+        <p class="control-card-desc" data-i18n="ctrl_llama_enable_desc">Starts the llama service. The rest of the panel keeps working either way.</p>
+        <div class="control-feedback" id="llama-enable-feedback"></div>
+      </div>
+
+      <!-- Model source -->
+      <div class="control-card">
+        <div class="control-card-header">
+          <span class="control-card-title" data-i18n="ctrl_llama_model_title">Model source</span>
+        </div>
+        <p class="control-card-desc" data-i18n="ctrl_llama_model_desc">Paste the download link of a .gguf file from Hugging Face, then download it to this device.</p>
+        <div class="input-row">
+          <input class="text-input" type="text" id="llama-model-url"
+                 placeholder="https://huggingface.co/…/resolve/main/model.gguf" spellcheck="false" />
+          <button class="action-btn" id="llama-download-btn" data-i18n="ctrl_llama_download_btn">Download</button>
+        </div>
+        <div class="control-feedback" id="llama-model-feedback"></div>
+      </div>
+
+      <!-- Installed models -->
+      <div class="control-card">
+        <div class="control-card-header">
+          <span class="control-card-title" data-i18n="ctrl_llama_installed_title">Installed models</span>
+        </div>
+        <div class="empty-state" id="llama-installed-empty" data-i18n="llama_installed_empty">
+          No models installed yet. Download one above.
+        </div>
+        <div class="model-list" id="llama-installed-list" hidden></div>
+        <div class="control-feedback" id="llama-installed-feedback"></div>
+      </div>
+    </section>
+
   </main>
 
   <!-- ── FOOTER ── -->
   <footer class="footer">
-    <span data-i18n="footer_version">v0.1.0 — Rapid Analysis PTY LTD</span>
+    <span data-i18n="footer_version">v0.1.1 — Rapid Analysis PTY LTD</span>
   </footer>
+
+  <!-- ── ASK XERXES AI — chat with the local model, available on every tab ── -->
+  <button class="chat-launcher" id="chat-launcher" type="button"
+          aria-controls="chat-panel" aria-expanded="false" data-i18n="chat_launcher">Ask Xerxes AI</button>
+
+  <aside class="chat-panel" id="chat-panel" aria-label="Xerxes Assistant" aria-hidden="true">
+    <div class="chat-header">
+      <span class="chat-status-dot" id="chat-status-dot" title="Checking Llama status..."></span>
+      <span class="chat-title" data-i18n="chat_title">Xerxes Assistant</span>
+      <button class="chat-close" id="chat-close" type="button" aria-label="Close chat">&times;</button>
+    </div>
+    <div class="chat-messages" id="chat-messages" aria-live="polite">
+      <div class="chat-msg assistant" data-i18n="chat_greeting">Hello! I'm your Xerxes Pi assistant. How can I help you manage your server today?</div>
+    </div>
+    <form class="chat-input-row" id="chat-form">
+      <input class="chat-input" id="chat-input" type="text" placeholder="Type a message..."
+             autocomplete="off" aria-label="Message" />
+      <button class="chat-send" id="chat-send" type="submit" aria-label="Send">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"
+             stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>
+        </svg>
+      </button>
+    </form>
+  </aside>
 
   <script src="app.js"></script>
 </body>

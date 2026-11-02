@@ -32,6 +32,7 @@ export DEBIAN_FRONTEND=noninteractive
 $SUDO apt-get update -y
 $SUDO apt-get install -y \
   build-essential gdb git curl wget ca-certificates file gnupg \
+  libcurl4-openssl-dev cmake \
   docker.io samba nmap \
   sudo procps iproute2 iputils-ping keyutils coreutils sed grep
 

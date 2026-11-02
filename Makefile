@@ -1,6 +1,6 @@
 CXX      = g++
 CXXFLAGS = -std=c++17 -Wall -O2 -Iinclude -Ithird_party
-LDLIBS   = -pthread
+LDLIBS   = -pthread -lcurl
 
 TARGET = xerxes_backend
 SRCS   = $(wildcard src/*.cpp)

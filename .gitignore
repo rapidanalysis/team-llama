@@ -6,7 +6,8 @@
 ._*
 
 # Custom folder icons
-Icon
+Icon
+
 
 # Volume root files
 .DocumentRevisions-V100
@@ -77,3 +78,16 @@ $RECYCLE.BIN/
 *.dSYM/
 *.idb
 *.pdb
+
+# Build output
+build/
+xerxes_backend
+
+# CMake (llama.cpp build)
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+compile_commands.json
+
+# Downloaded llama models
+models/

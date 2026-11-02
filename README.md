@@ -32,8 +32,10 @@ To maintain a clean codebase while still compiling to a single executable, the p
 ### Step 1: Clone this Repo
 
 ```bash
-git clone https://github.com/rapidanalysis/team-llama.git
+git clone --recurse-submodules https://github.com/rapidanalysis/team-llama.git
 ```
+
+If you already cloned without submodules, run `git submodule update --init` to fetch `third_party/llama.cpp`.
 
 ### Step 2: Install Dependencies
 
@@ -75,7 +77,7 @@ rm ./xerxes-backend
 
 **Check System Status:**
 ```bash
-curl -X GET http://127.0.0.1:7272/
+curl -X GET http://127.0.0.1:8000/
 ```
 
 ## Deploy as a systemd Service (Production)

@@ -3,7 +3,7 @@
    Handles: localisation, theme, status check, tab switching,
             output popup, system commands, network info & config,
             hostname rename, Tailscale dashboard, ngrok dashboard,
-            service badges, reboot/shutdown.
+            service badges, reboot/shutdown, Llama (local LLM).
    ============================================================ */
 
 var API_BASE = "";  // same origin — served by the C++ backend
@@ -89,6 +89,7 @@ navLinks.forEach(function (link) {
     // Lazy-load section data
     if (target === "network") loadNetworkInfo();
     if (target === "tunnels") loadTailscaleDetails();
+    if (target === "llama")   { loadLlamaStatus(); loadLlamaModels(); }
   });
 });
 
@@ -239,7 +240,7 @@ document.getElementById("clear-output").addEventListener("click", function () {
 });
 
 /* ── GENERIC CMD-BTN (non-system — shows output popup) ── */
-document.querySelectorAll(".cmd-btn:not(.sys-cmd)").forEach(function (btn) {
+document.querySelectorAll(".cmd-btn:not(.sys-cmd):not(.newt-btn)").forEach(function (btn) {
   btn.addEventListener("click", function () {
     runPopupCommand(btn.getAttribute("data-command"), btn);
   });
@@ -590,6 +591,154 @@ function fetchNgrokUrl(localPort, attempt) {
   xhr.send(JSON.stringify({ command: "ngrok_url" }));
 }
 
+/* ── NEWT (PANGOLIN) DASHBOARD ── */
+// Newt runs as the "xerxes-newt" Docker container, managed by /api/newt/*.
+// The secret is sent once on Enable and is never returned by the backend.
+var newtBadge        = document.getElementById("badge-newt");
+var newtStateEl      = document.getElementById("newt-state");
+var newtEndpointShow = document.getElementById("newt-endpoint-display");
+var newtIdShow       = document.getElementById("newt-id-display");
+var newtEndpointIn   = document.getElementById("newt-endpoint");
+var newtIdIn         = document.getElementById("newt-id");
+var newtSecretIn     = document.getElementById("newt-secret");
+var newtEnableBtn    = document.getElementById("newt-enable-btn");
+var newtFeedback     = document.getElementById("newt-feedback");
+var newtPollTimer    = null;
+
+var NEWT_STATES = {
+  connected:          { badge: "connected",   cls: "badge-active",   label: "Connected" },
+  connecting:         { badge: "connecting",  cls: "badge-neutral",  label: "Connecting..." },
+  auth_failed:        { badge: "rejected",    cls: "badge-failed",   label: "Rejected" },
+  error:              { badge: "error",       cls: "badge-failed",   label: "Can't reach server" },
+  stopped:            { badge: "stopped",     cls: "badge-inactive", label: "Stopped" },
+  not_configured:     { badge: "not set up",  cls: "badge-inactive", label: "Not set up" },
+  docker_unavailable: { badge: "docker error", cls: "badge-failed",  label: "Docker unavailable" }
+};
+
+// Plain-language hints for the states that need the user to do something
+var NEWT_HINTS = {
+  auth_failed:        "Pangolin rejected the Newt ID or secret. Check them against your Site in Pangolin.",
+  error:              "Newt can't reach the Pangolin server. Check the endpoint address and this device's internet connection.",
+  docker_unavailable: "Newt needs Docker, and the backend can't use it."
+};
+
+function renderNewtStatus(data) {
+  var st = NEWT_STATES[data.state] || { badge: data.state || "unknown", cls: "badge-neutral", label: data.state || "Unknown" };
+  newtBadge.textContent   = st.badge;
+  newtBadge.className     = "service-badge " + st.cls;
+  newtStateEl.textContent = st.label;
+  newtEndpointShow.textContent = data.endpoint || "—";
+  newtIdShow.textContent       = data.newt_id  || "—";
+
+  // Pre-fill the form with the saved settings (never the secret)
+  if (!newtEndpointIn.value && data.endpoint) newtEndpointIn.value = data.endpoint;
+  if (!newtIdIn.value && data.newt_id)        newtIdIn.value       = data.newt_id;
+  newtSecretIn.placeholder = data.has_secret ? "Saved — leave blank to keep it" : "Newt secret";
+
+  if (NEWT_HINTS[data.state]) {
+    showFeedback(newtFeedback, NEWT_HINTS[data.state] + (data.detail ? " (" + data.detail + ")" : ""), "error");
+  } else if (data.state === "connected") {
+    showFeedback(newtFeedback, "Tunnel is up. This device is reachable through Pangolin.", "success");
+  }
+}
+
+// llamaRequest() (Llama section) is a generic JSON XHR helper — reused here.
+function loadNewtStatus(cb) {
+  llamaRequest("GET", "/api/newt/status", null, 10000, function (err, data) {
+    if (err) {
+      newtBadge.textContent = "unknown";
+      newtBadge.className   = "service-badge badge-neutral";
+      if (cb) cb(null);
+      return;
+    }
+    renderNewtStatus(data);
+    if (cb) cb(data.state);
+  });
+}
+
+// After Enable, Newt needs a few seconds to log in and bring the tunnel up.
+// Poll every 3 s for up to ~45 s until it settles.
+function pollNewtStatus(triesLeft) {
+  clearTimeout(newtPollTimer);
+  loadNewtStatus(function (state) {
+    if (state === "connecting" && triesLeft > 0) {
+      newtPollTimer = setTimeout(function () { pollNewtStatus(triesLeft - 1); }, 3000);
+    } else if (state === "connecting") {
+      showFeedback(newtFeedback, "Still connecting. Click View Logs to see what Newt is doing.", "error");
+    }
+  });
+}
+
+newtEnableBtn.addEventListener("click", function () {
+  var endpoint = newtEndpointIn.value.trim();
+  var newtId   = newtIdIn.value.trim();
+  var secret   = newtSecretIn.value.trim();
+  var hasSaved = newtSecretIn.placeholder.indexOf("Saved") === 0;
+
+  if (!/^https?:\/\/[A-Za-z0-9][A-Za-z0-9.\-:\/_]*$/.test(endpoint)) {
+    showFeedback(newtFeedback, "Enter the Pangolin endpoint, e.g. https://pangolin.example.com", "error");
+    return;
+  }
+  if (!/^[A-Za-z0-9]{1,64}$/.test(newtId)) {
+    showFeedback(newtFeedback, "The Newt ID should be letters and numbers only.", "error");
+    return;
+  }
+  if (secret ? !/^[A-Za-z0-9]{1,128}$/.test(secret) : !hasSaved) {
+    showFeedback(newtFeedback, secret ? "The secret should be letters and numbers only." : "Enter the Newt secret.", "error");
+    return;
+  }
+
+  clearTimeout(newtPollTimer);
+  newtEnableBtn.disabled    = true;
+  newtEnableBtn.textContent = "Enabling...";
+  showFeedback(newtFeedback, "Starting Newt... the first time can take a minute while it downloads.", "");
+
+  llamaRequest("POST", "/api/newt/enable", { endpoint: endpoint, newt_id: newtId, secret: secret }, 300000,
+    function (err, data) {
+      newtEnableBtn.disabled    = false;
+      newtEnableBtn.textContent = "Enable";
+      if (err) { showFeedback(newtFeedback, err, "error"); return; }
+      if (!data.success) {
+        showFeedback(newtFeedback, data.error || "Could not start Newt.", "error");
+        if (data.output) showOutputPopup("Newt — Enable", data.output);
+        return;
+      }
+      newtSecretIn.value = "";
+      showFeedback(newtFeedback, "Newt started. Waiting for the tunnel to connect...", "");
+      pollNewtStatus(15);
+    });
+});
+
+document.getElementById("newt-disable-btn").addEventListener("click", function () {
+  var btn = this;
+  clearTimeout(newtPollTimer);
+  btn.disabled = true;
+  btn.classList.add("running");
+  llamaRequest("POST", "/api/newt/disable", null, 30000, function (err, data) {
+    btn.disabled = false;
+    btn.classList.remove("running");
+    if (err)               showFeedback(newtFeedback, err, "error");
+    else if (!data.success) showFeedback(newtFeedback, data.error || "Could not stop Newt.", "error");
+    else                   showFeedback(newtFeedback, "Newt stopped. Your settings are saved for next time.", "success");
+    loadNewtStatus();
+  });
+});
+
+document.getElementById("newt-status-btn").addEventListener("click", function () {
+  showFeedback(newtFeedback, "", "");
+  loadNewtStatus();
+});
+
+document.getElementById("newt-logs-btn").addEventListener("click", function () {
+  showOutputPopup("Newt — Logs", "Loading...");
+  llamaRequest("GET", "/api/newt/logs", null, 10000, function (err, data) {
+    if (err) { setPopupOutput(err); return; }
+    setPopupOutput(data.output && data.output.indexOf("No such container") === -1
+      ? data.output
+      : "No logs yet. Newt isn't running. Fill in the details above and click Enable.");
+  });
+});
+
 /* ── SHARED FEEDBACK HELPER ── */
 function showFeedback(el, msg, type) {
   el.textContent = msg;
@@ -817,7 +966,8 @@ function submitRunContainer(payload) {
         dockerOutput.textContent = data.output || "[ok] Container started.";
         showFeedback(runFeedback, "Container started successfully.", "success");
       } else {
-        dockerOutput.textContent = data.error || data.output || xhr.responseText;
+        // Show the summary AND Docker's own message (e.g. "name already in use"), not just the exit code
+        dockerOutput.textContent = [data.error, data.output].filter(Boolean).join("\n\n") || xhr.responseText;
         showFeedback(runFeedback, data.error || "Failed to start container.", "error");
       }
     } catch (e) {
@@ -846,7 +996,365 @@ function submitRunContainer(payload) {
   xhr.send(JSON.stringify(payload));
 }
 
+/* ── LLAMA ── */
+var llamaToggle         = document.getElementById("llama-enable-toggle");
+var llamaBadge          = document.getElementById("badge-llama");
+var llamaEnableFeedback = document.getElementById("llama-enable-feedback");
+var llamaUrlInput       = document.getElementById("llama-model-url");
+var llamaDownloadBtn    = document.getElementById("llama-download-btn");
+var llamaModelFeedback  = document.getElementById("llama-model-feedback");
+var llamaInstalledList  = document.getElementById("llama-installed-list");
+var llamaInstalledEmpty = document.getElementById("llama-installed-empty");
+var llamaInstalledFeedback = document.getElementById("llama-installed-feedback");
+
+var llamaRunning     = false;
+var llamaSelected    = "";   // filename of the model chosen in Installed models
+var llamaDownloading = "";   // filename being downloaded — hidden from the list until complete
+
+// Small wrapper: every Llama endpoint returns JSON, so parse it once here.
+// cb(errorMessage, data, httpStatus) — errorMessage is null when the body parsed.
+function llamaRequest(method, path, body, timeout, cb) {
+  var xhr = new XMLHttpRequest();
+  xhr.open(method, API_BASE + path, true);
+  if (body) xhr.setRequestHeader("Content-Type", "application/json");
+  xhr.timeout = timeout;
+  xhr.onload = function () {
+    var data = null;
+    try { data = JSON.parse(xhr.responseText); } catch (e) {}
+    cb(data === null ? "Unexpected response from backend." : null, data, xhr.status);
+  };
+  xhr.onerror   = function () { cb("Error: Could not reach backend."); };
+  xhr.ontimeout = function () { cb("Error: Request timed out."); };
+  xhr.send(body ? JSON.stringify(body) : null);
+}
+
+function setLlamaBadge(text, cls) {
+  llamaBadge.textContent = text;
+  llamaBadge.className   = "service-badge " + cls;
+}
+
+function setLlamaRunning(running) {
+  llamaRunning        = running;
+  llamaToggle.checked = running;
+  llamaToggle.disabled = false;
+  setLlamaBadge(running ? "running" : "stopped", running ? "badge-active" : "badge-inactive");
+
+  // The model can't be swapped while llama-server has one loaded
+  llamaInstalledList.querySelectorAll(".model-row").forEach(function (row) {
+    row.classList.toggle("disabled", running);
+    row.querySelector("input").disabled = running;
+  });
+  showFeedback(llamaInstalledFeedback, running && llamaSelected ? "Turn Llama off to switch models." : "", "");
+}
+
+function loadLlamaStatus(cb) {
+  llamaRequest("GET", "/api/llama/status", null, 5000, function (err, data) {
+    if (err) { setLlamaBadge("unknown", "badge-neutral"); }
+    else     { setLlamaRunning(!!data.running); }
+    if (cb) cb(err ? null : !!data.running);
+  });
+}
+
+function loadLlamaModels() {
+  llamaRequest("GET", "/api/llama/models", null, 5000, function (err, data) {
+    if (err || !Array.isArray(data)) {
+      showFeedback(llamaInstalledFeedback, err || "Could not load installed models.", "error");
+      return;
+    }
+    renderLlamaModels(data.filter(function (m) { return m !== llamaDownloading; }));
+  });
+}
+
+function renderLlamaModels(models) {
+  llamaInstalledList.textContent = "";
+  llamaInstalledEmpty.hidden = models.length > 0;
+  llamaInstalledList.hidden  = models.length === 0;
+  if (models.length === 0) { llamaSelected = ""; return; }
+
+  if (models.indexOf(llamaSelected) === -1) llamaSelected = models[0];
+
+  models.forEach(function (name) {
+    var row   = document.createElement("label");
+    row.className = "model-row";
+    var radio = document.createElement("input");
+    radio.type    = "radio";
+    radio.name    = "llama-model";
+    radio.value   = name;
+    radio.checked = (name === llamaSelected);
+    radio.addEventListener("change", function () { llamaSelected = name; });
+    var span  = document.createElement("span");
+    span.className   = "model-name";
+    span.textContent = name;
+    row.appendChild(radio);
+    row.appendChild(span);
+    llamaInstalledList.appendChild(row);
+  });
+
+  setLlamaRunning(llamaRunning);  // re-apply the locked state to the new rows
+}
+
+llamaToggle.addEventListener("change", function () {
+  if (llamaToggle.checked) startLlama(); else stopLlama();
+});
+
+function startLlama() {
+  var model = llamaSelected;
+  if (!model) {
+    llamaToggle.checked = false;
+    showFeedback(llamaEnableFeedback, "Download a model first, then try again.", "error");
+    return;
+  }
+
+  llamaToggle.disabled = true;
+  setLlamaBadge("starting", "badge-neutral");
+  showFeedback(llamaEnableFeedback, "Starting with " + model + "...", "");
+
+  llamaRequest("POST", "/api/llama/enable", { model: model }, 15000, function (err, data) {
+    if (err || !data.success) {
+      showFeedback(llamaEnableFeedback, err || data.error || "Failed to start Llama.", "error");
+      loadLlamaStatus();
+      return;
+    }
+    setLlamaRunning(true);
+    showFeedback(llamaEnableFeedback,
+      "Loading " + model + ". Small models are ready in a few seconds; larger ones can take a minute.", "success");
+
+    // llama-server exits quickly if the model doesn't fit in memory or the
+    // binary is missing — catch that rather than leaving the toggle on.
+    setTimeout(function () {
+      loadLlamaStatus(function (running) {
+        if (running === false) {
+          showFeedback(llamaEnableFeedback,
+            "Llama stopped right after starting. The model may be too large for this device's memory, " +
+            "or llama-server hasn't been built yet (run make llama).", "error");
+        }
+      });
+    }, 4000);
+  });
+}
+
+function stopLlama() {
+  llamaToggle.disabled = true;
+  setLlamaBadge("stopping", "badge-neutral");
+  showFeedback(llamaEnableFeedback, "Stopping...", "");
+
+  // The backend waits up to 5 s for llama-server to exit cleanly
+  llamaRequest("POST", "/api/llama/disable", null, 10000, function (err) {
+    if (err) {
+      showFeedback(llamaEnableFeedback, err, "error");
+      loadLlamaStatus();
+      return;
+    }
+    setLlamaRunning(false);
+    showFeedback(llamaEnableFeedback, "Llama stopped. Its memory has been freed.", "success");
+  });
+}
+
+// Accepts the links people actually copy from Hugging Face and turns them into
+// the direct file link the backend needs:
+//   .../blob/main/x.gguf   (web page)     -> .../resolve/main/x.gguf
+//   ...x.gguf?download=true                -> ...x.gguf
+function normaliseModelUrl(raw) {
+  var url = raw.trim().split("#")[0].split("?")[0];
+  return url.replace(/^(https:\/\/huggingface\.co\/[^\/]+\/[^\/]+)\/blob\//, "$1/resolve/");
+}
+
+llamaDownloadBtn.addEventListener("click", function () {
+  var url = normaliseModelUrl(llamaUrlInput.value);
+
+  if (!url) {
+    showFeedback(llamaModelFeedback, "Paste a Hugging Face download link first.", "error");
+    llamaUrlInput.focus();
+    return;
+  }
+  if (url.indexOf("https://huggingface.co/") !== 0 || url.indexOf("/resolve/") === -1 || !/\.gguf$/i.test(url)) {
+    showFeedback(llamaModelFeedback,
+      "Use the link to a .gguf file, like https://huggingface.co/<user>/<repo>/resolve/main/<file>.gguf", "error");
+    llamaUrlInput.focus();
+    return;
+  }
+
+  var filename = url.substring(url.lastIndexOf("/") + 1);
+  llamaUrlInput.value = url;
+  llamaDownloading    = filename;
+  llamaDownloadBtn.disabled    = true;
+  llamaDownloadBtn.textContent = "Downloading...";
+  showFeedback(llamaModelFeedback,
+    "Downloading " + filename + ". Large models can take several minutes — keep this tab open to see the result.", "");
+
+  function finish() {
+    llamaDownloading = "";
+    llamaDownloadBtn.disabled    = false;
+    llamaDownloadBtn.textContent = "Download";
+    loadLlamaModels();
+  }
+
+  llamaRequest("POST", "/api/llama/download", { url: url }, 3600000, function (err, data) {
+    if (err === "Error: Request timed out.") {
+      showFeedback(llamaModelFeedback,
+        "Still downloading after an hour. The device keeps going in the background — check Installed models later.", "error");
+    } else if (err || !data.success) {
+      showFeedback(llamaModelFeedback, err || data.error || "Download failed.", "error");
+    } else {
+      showFeedback(llamaModelFeedback, "Downloaded " + filename + ".", "success");
+      llamaUrlInput.value = "";
+      if (!llamaRunning) llamaSelected = filename;
+    }
+    finish();
+  });
+});
+
+/* ── ASK XERXES AI (chat panel) ──
+   Lives outside the tab sections, so it stays open and keeps the
+   conversation when switching tabs. Talks to the local model through
+   the backend's OpenAI-compatible proxy. */
+var chatLauncher = document.getElementById("chat-launcher");
+var chatPanel    = document.getElementById("chat-panel");
+var chatClose    = document.getElementById("chat-close");
+var chatMessages = document.getElementById("chat-messages");
+var chatForm     = document.getElementById("chat-form");
+var chatInput    = document.getElementById("chat-input");
+var chatSend     = document.getElementById("chat-send");
+var chatDot      = document.getElementById("chat-status-dot");
+
+var CHAT_SYSTEM_PROMPT =
+  "You are Xerxes Assistant, built into the Xerxes Pi admin panel on a Raspberry Pi " +
+  "compute module. Help the user manage and understand their device. Keep answers short and practical.";
+var CHAT_MAX_HISTORY = 10;   // messages sent back to the model; its context is only 4096 tokens
+var chatHistory = [];        // { role, content } — excludes the greeting and failed turns
+var chatBusy    = false;
+
+function openChat() {
+  chatPanel.classList.add("open");
+  chatPanel.setAttribute("aria-hidden", "false");
+  chatLauncher.hidden = true;
+  chatLauncher.setAttribute("aria-expanded", "true");
+  if (!chatBusy) refreshChatStatus();
+  chatInput.focus();
+}
+
+function closeChat() {
+  chatPanel.classList.remove("open");
+  chatPanel.setAttribute("aria-hidden", "true");
+  chatLauncher.hidden = false;
+  chatLauncher.setAttribute("aria-expanded", "false");
+  chatLauncher.focus();
+}
+
+chatLauncher.addEventListener("click", openChat);
+chatClose.addEventListener("click", closeChat);
+document.addEventListener("keydown", function (e) {
+  if (e.key === "Escape" && chatPanel.classList.contains("open")) closeChat();
+});
+
+function setChatDot(running) {
+  chatDot.className = "chat-status-dot" + (running === true ? " on" : running === false ? " off" : "");
+  chatDot.title = running === true ? "Llama is running" : running === false ? "Llama is off" : "Llama status unknown";
+}
+
+function refreshChatStatus() {
+  llamaRequest("GET", "/api/llama/status", null, 5000, function (err, data) {
+    setChatDot(err ? null : !!data.running);
+  });
+}
+
+function appendChatMessage(cls, text) {
+  var el = document.createElement("div");
+  el.className   = "chat-msg " + cls;
+  el.textContent = text;
+  chatMessages.appendChild(el);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+  return el;
+}
+
+function appendChatTyping() {
+  var el = document.createElement("div");
+  el.className = "chat-msg assistant typing";
+  el.setAttribute("aria-label", "Assistant is typing");
+  for (var i = 0; i < 3; i++) el.appendChild(document.createElement("span"));
+  chatMessages.appendChild(el);
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+  return el;
+}
+
+// Error bubble; when Llama is off, include a button that jumps to the Llama tab.
+function appendChatError(text, showLlamaLink) {
+  var el = appendChatMessage("error", text);
+  if (showLlamaLink) {
+    var btn = document.createElement("button");
+    btn.type = "button";
+    btn.textContent = "Open Llama settings";
+    btn.addEventListener("click", function () {
+      closeChat();
+      document.querySelector('.nav-link[data-section="llama"]').click();
+    });
+    el.appendChild(btn);
+  }
+  chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+// Turns backend / llama-server failures into something the user can act on.
+// Returns { text, llamaOff }.
+function describeChatError(err, data, status) {
+  if (err === "Error: Request timed out.")
+    return { text: "No reply after 3 minutes. The model may be too large for this device. Try a shorter question or a smaller model." };
+  if (err === "Error: Could not reach backend.")
+    return { text: "Could not reach the backend. Check the panel is still online." };
+
+  var msg = data && data.error ? (typeof data.error === "string" ? data.error : data.error.message || "") : "";
+  if (msg.indexOf("not running") !== -1)
+    return { text: "Llama is turned off. Turn it on in the Llama tab, then send your message again.", llamaOff: true };
+  if (status === 503 || msg.indexOf("not reachable") !== -1 || /loading/i.test(msg))
+    return { text: "The model is still loading. Try again in a few seconds." };
+  return { text: msg || "The model returned an error (HTTP " + status + ")." };
+}
+
+function setChatBusy(busy) {
+  chatBusy = busy;
+  chatSend.disabled = busy;
+}
+
+chatForm.addEventListener("submit", function (e) {
+  e.preventDefault();
+  var text = chatInput.value.trim();
+  if (!text || chatBusy) return;
+
+  chatInput.value = "";
+  appendChatMessage("user", text);
+  chatHistory.push({ role: "user", content: text });
+  setChatBusy(true);
+  var typing = appendChatTyping();
+
+  var messages = [{ role: "system", content: CHAT_SYSTEM_PROMPT }]
+    .concat(chatHistory.slice(-CHAT_MAX_HISTORY));
+
+  // Generation on a Pi is slow — allow up to 3 minutes for a reply
+  llamaRequest("POST", "/api/llama/v1/chat/completions",
+               { messages: messages, max_tokens: 512 }, 180000,
+               function (err, data, status) {
+    typing.remove();
+    var choice = !err && data && data.choices && data.choices[0];
+    var reply  = choice && choice.message ? choice.message.content : null;
+
+    if (typeof reply === "string") {
+      reply = reply.trim() || "(The model returned an empty reply.)";
+      chatHistory.push({ role: "assistant", content: reply });
+      appendChatMessage("assistant", reply);
+      setChatDot(true);
+    } else {
+      // Drop the failed turn from history and hand the text back for a retry
+      chatHistory.pop();
+      if (!chatInput.value) chatInput.value = text;
+      var problem = describeChatError(err, data, status);
+      appendChatError(problem.text, problem.llamaOff);
+      if (problem.llamaOff) setChatDot(false);
+    }
+    setChatBusy(false);
+  });
+});
+
 /* ── INIT ── */
 loadLang();
 loadDashboard();
 loadServices();
+loadNewtStatus();

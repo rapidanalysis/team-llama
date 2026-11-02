@@ -2,6 +2,8 @@
 #include "system_ops.h"
 #include "network_config.h"
 #include "docker_manager.h"
+#include "llama_manager.h"
+#include "newt_manager.h"
 #include "json.hpp"
 #include <iostream>
 #include <cctype>
@@ -304,6 +306,215 @@ void setup_routes(httplib::Server& svr) {
                 {"message", "Invalid request body"}
             };
             res.status = 400;
+            res.set_content(error.dump(), "application/json");
+        }
+    });
+
+    // ------------------------------------------------------------------
+    // POST /api/newt/enable
+    // Accepts { "endpoint": "https://pangolin.example.com",
+    //           "newt_id": "...", "secret": "..." } and (re)starts the
+    // xerxes-newt container. An empty secret reuses the saved one.
+    // The secret is never logged or returned.
+    // ------------------------------------------------------------------
+    svr.Post("/api/newt/enable", [](const httplib::Request& req, httplib::Response& res) {
+        set_cors_headers(res);
+
+        try {
+            nlohmann::json body = nlohmann::json::parse(req.body);
+            std::string endpoint = body.value("endpoint", "");
+            std::string newt_id  = body.value("newt_id",  "");
+            std::string secret   = body.value("secret",   "");
+
+            std::cout << "[Newt] enable endpoint=" << endpoint << " id=" << newt_id
+                      << " secret=" << (secret.empty() ? "(saved)" : "(provided)") << "\n";
+
+            auto result = newt_manager::enable(endpoint, newt_id, secret);
+            nlohmann::json response = {
+                {"success", result.success},
+                {"error",   result.error},
+                {"output",  result.output}
+            };
+            res.status = result.success ? 200 : 400;
+            res.set_content(response.dump(), "application/json");
+
+        } catch (const std::exception& e) {
+            nlohmann::json error = { {"success", false}, {"error", "Invalid request body"} };
+            res.status = 400;
+            res.set_content(error.dump(), "application/json");
+        }
+    });
+
+    // ------------------------------------------------------------------
+    // POST /api/newt/disable
+    // Stops and removes the xerxes-newt container (saved config is kept).
+    // ------------------------------------------------------------------
+    svr.Post("/api/newt/disable", [](const httplib::Request&, httplib::Response& res) {
+        set_cors_headers(res);
+
+        std::cout << "[Newt] disable\n";
+        auto result = newt_manager::disable();
+        nlohmann::json response = {
+            {"success", result.success},
+            {"error",   result.error},
+            {"output",  result.output}
+        };
+        res.status = result.success ? 200 : 500;
+        res.set_content(response.dump(), "application/json");
+    });
+
+    // ------------------------------------------------------------------
+    // GET /api/newt/status
+    // Returns { "state", "container", "endpoint", "newt_id",
+    //           "has_secret", "detail" }. state is one of: connected,
+    // connecting, auth_failed, error, stopped, not_configured,
+    // docker_unavailable.
+    // ------------------------------------------------------------------
+    svr.Get("/api/newt/status", [](const httplib::Request&, httplib::Response& res) {
+        set_cors_headers(res);
+
+        auto s = newt_manager::status();
+        nlohmann::json response = {
+            {"state",      s.state},
+            {"container",  s.container},
+            {"endpoint",   s.endpoint},
+            {"newt_id",    s.newt_id},
+            {"has_secret", s.has_secret},
+            {"detail",     s.detail}
+        };
+        res.set_content(response.dump(), "application/json");
+    });
+
+    // ------------------------------------------------------------------
+    // GET /api/newt/logs
+    // Returns { "output": "<last 100 lines of the Newt container log>" }.
+    // ------------------------------------------------------------------
+    svr.Get("/api/newt/logs", [](const httplib::Request&, httplib::Response& res) {
+        set_cors_headers(res);
+
+        nlohmann::json response = { {"output", newt_manager::logs(100)} };
+        res.set_content(response.dump(), "application/json");
+    });
+
+    // ------------------------------------------------------------------
+    // POST /api/llama/enable
+    // Accepts { "model": "file.gguf" } and starts llama-server against
+    // models/<model>. Returns { "success": bool, "error": string }.
+    // ------------------------------------------------------------------
+    svr.Post("/api/llama/enable", [](const httplib::Request& req, httplib::Response& res) {
+        set_cors_headers(res);
+
+        try {
+            nlohmann::json body = nlohmann::json::parse(req.body);
+            std::string model = body.value("model", "");
+
+            if (model.empty()) {
+                nlohmann::json error = { {"success", false}, {"error", "missing \"model\" field"} };
+                res.status = 400;
+                res.set_content(error.dump(), "application/json");
+                return;
+            }
+
+            std::cout << "[Llama] enable model=" << model << "\n";
+
+            auto result = llama_manager::enable(model);
+            nlohmann::json response = { {"success", result.success}, {"error", result.error} };
+            res.status = result.success ? 200 : 500;
+            res.set_content(response.dump(), "application/json");
+
+        } catch (const std::exception& e) {
+            nlohmann::json error = { {"success", false}, {"error", "Invalid request body"} };
+            res.status = 400;
+            res.set_content(error.dump(), "application/json");
+        }
+    });
+
+    // ------------------------------------------------------------------
+    // POST /api/llama/disable
+    // Stops llama-server if it is running.
+    // ------------------------------------------------------------------
+    svr.Post("/api/llama/disable", [](const httplib::Request&, httplib::Response& res) {
+        set_cors_headers(res);
+
+        std::cout << "[Llama] disable\n";
+        llama_manager::disable();
+
+        nlohmann::json response = { {"success", true} };
+        res.set_content(response.dump(), "application/json");
+    });
+
+    // ------------------------------------------------------------------
+    // GET /api/llama/status
+    // Returns { "running": bool, "pid": int } (pid is -1 when stopped).
+    // ------------------------------------------------------------------
+    svr.Get("/api/llama/status", [](const httplib::Request&, httplib::Response& res) {
+        set_cors_headers(res);
+
+        auto s = llama_manager::status();
+        nlohmann::json response = { {"running", s.running}, {"pid", s.pid} };
+        res.set_content(response.dump(), "application/json");
+    });
+
+    // ------------------------------------------------------------------
+    // POST /api/llama/download
+    // Accepts { "url": "https://huggingface.co/..." } and downloads the
+    // model into models/. Blocks until the download finishes.
+    // Returns { "success": bool, "error": string }.
+    // ------------------------------------------------------------------
+    svr.Post("/api/llama/download", [](const httplib::Request& req, httplib::Response& res) {
+        set_cors_headers(res);
+
+        try {
+            nlohmann::json body = nlohmann::json::parse(req.body);
+            std::string url = body.value("url", "");
+
+            if (url.empty()) {
+                nlohmann::json error = { {"success", false}, {"error", "missing \"url\" field"} };
+                res.status = 400;
+                res.set_content(error.dump(), "application/json");
+                return;
+            }
+
+            std::cout << "[Llama] download url=" << url << "\n";
+
+            auto result = llama_manager::download(url);
+            nlohmann::json response = { {"success", result.success}, {"error", result.error} };
+            res.status = result.success ? 200 : 500;
+            res.set_content(response.dump(), "application/json");
+
+        } catch (const std::exception& e) {
+            nlohmann::json error = { {"success", false}, {"error", "Invalid request body"} };
+            res.status = 400;
+            res.set_content(error.dump(), "application/json");
+        }
+    });
+
+    // ------------------------------------------------------------------
+    // GET /api/llama/models
+    // Returns a JSON array of .gguf filenames found in models/.
+    // ------------------------------------------------------------------
+    svr.Get("/api/llama/models", [](const httplib::Request&, httplib::Response& res) {
+        set_cors_headers(res);
+
+        nlohmann::json response = llama_manager::installed_models();
+        res.set_content(response.dump(), "application/json");
+    });
+
+    // ------------------------------------------------------------------
+    // POST /api/llama/v1/chat/completions
+    // Forwards the request body unchanged to llama-server's
+    // OpenAI-compatible endpoint and relays its response.
+    // ------------------------------------------------------------------
+    svr.Post("/api/llama/v1/chat/completions", [](const httplib::Request& req, httplib::Response& res) {
+        set_cors_headers(res);
+
+        try {
+            auto proxied = llama_manager::proxy("/v1/chat/completions", "POST", req.body);
+            res.status = proxied.status;
+            res.set_content(proxied.body, proxied.content_type);
+        } catch (const std::exception& e) {
+            nlohmann::json error = { {"error", e.what()} };
+            res.status = 502;
             res.set_content(error.dump(), "application/json");
         }
     });

@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Xerxes Pi — Admin Panel</title>
-  <link rel="stylesheet" href="styles.css?v=6" />
+  <link rel="stylesheet" href="styles.css?v=7" />
 </head>
 <body>
 
@@ -25,6 +25,7 @@
       <a href="#tunnels"   class="nav-link" data-section="tunnels" data-i18n="nav_tunnels">Tunnels</a>
       <a href="#docker"    class="nav-link" data-section="docker" data-i18n="nav_docker">Docker</a>
       <a href="#llama"     class="nav-link" data-section="llama"  data-i18n="nav_llama">Llama</a>
+      <a href="#i2c"       class="nav-link" data-section="i2c"    data-i18n="nav_i2c">I2C</a>
     </nav>
 
     <div class="navbar-actions">
@@ -347,8 +348,6 @@
       </div>
     </section>
 
-    <div class="divider"></div>
-
     <!-- ── DOCKER ── -->
     <section id="docker" class="section">
       <h2 class="section-title" data-i18n="nav_docker">Docker</h2>
@@ -508,6 +507,146 @@
         </div>
         <div class="model-list" id="llama-installed-list" hidden></div>
         <div class="control-feedback" id="llama-installed-feedback"></div>
+      </div>
+    </section>
+
+    <!-- ── I2C ── -->
+    <section id="i2c" class="section">
+      <h2 class="section-title" data-i18n="nav_i2c">I2C</h2>
+      <p class="section-desc" data-i18n="i2c_desc">Manage devices connected over the I2C bus.</p>
+
+      <!-- OLED Display -->
+      <div class="i2c-device" id="i2c-oled">
+        <h3 class="i2c-device-title" data-i18n="oled_title">OLED Display</h3>
+        <div class="placeholder-note" data-i18n="oled_placeholder">To be implemented</div>
+      </div>
+
+      <!-- RFID Reader -->
+      <div class="i2c-device" id="i2c-rfid">
+      <h3 class="i2c-device-title" data-i18n="rfid_title">RFID Reader</h3>
+
+      <div class="control-card">
+        <div class="control-card-header">
+          <label class="toggle-switch" title="Run tag commands">
+            <input type="checkbox" id="rfid-run-toggle" aria-label="Run tag commands">
+            <span class="toggle-slider"></span>
+          </label>
+          <span class="control-card-title" data-i18n="rfid_reader_title">Run Tag Commands</span>
+          <span class="service-badge" id="badge-rfid">—</span>
+        </div>
+        <p class="control-card-desc" data-i18n="rfid_reader_desc">When on, tapping a registered tag runs its command on this device with the backend's privileges (root when deployed). Unknown tags are logged and ignored. Stays on after a restart.</p>
+
+        <div class="mini-card-row">
+          <div class="mini-card">
+            <span class="mini-card-label" data-i18n="rfid_label_module">Module</span>
+            <span class="mini-card-value" id="rfid-module-state">—</span>
+          </div>
+          <div class="mini-card">
+            <span class="mini-card-label" data-i18n="rfid_label_bus">Bus / Address</span>
+            <span class="mini-card-value" id="rfid-bus-display">—</span>
+          </div>
+          <div class="mini-card">
+            <span class="mini-card-label" data-i18n="rfid_label_last">Last Tag</span>
+            <span class="mini-card-value" id="rfid-last-tag">—</span>
+          </div>
+          <div class="mini-card">
+            <span class="mini-card-label" data-i18n="rfid_label_count">Registered Tags</span>
+            <span class="mini-card-value" id="rfid-tag-count">—</span>
+          </div>
+        </div>
+        <div class="control-feedback" id="rfid-run-feedback"></div>
+      </div>
+
+      <div class="output-panel rfid-log-panel">
+        <div class="output-header">
+          <span data-i18n="rfid_log_title">Reader Output</span>
+          <button class="clear-btn" id="rfid-log-clear">Clear</button>
+        </div>
+        <pre class="output-body" id="rfid-log">Tag reads and command output appear here while the reader is on.</pre>
+      </div>
+
+      <div class="control-card">
+        <div class="control-card-header">
+          <span class="control-card-title" data-i18n="rfid_tags_title">Registered Tags</span>
+          <button class="clear-btn" id="rfid-tags-refresh" type="button">Refresh</button>
+        </div>
+        <p class="control-card-desc" id="rfid-tags-path">Stored in tags.json.</p>
+        <div class="empty-state" id="rfid-tags-empty" data-i18n="rfid_tags_empty">No tags registered. Add one below.</div>
+        <div class="rfid-tag-list" id="rfid-tag-list" hidden></div>
+        <div class="control-feedback" id="rfid-tags-feedback"></div>
+      </div>
+
+      <div class="control-card" id="rfid-add-card">
+        <div class="control-card-header">
+          <span class="control-card-title" data-i18n="rfid_add_title">Add Tag</span>
+        </div>
+        <p class="control-card-desc" data-i18n="rfid_add_desc">Scan a tag on the reader (or type its ID), then enter the command to run when it is tapped.</p>
+        <div class="form-row">
+          <div class="form-field rfid-id-field">
+            <label class="form-label" for="rfid-new-id" data-i18n="rfid_input_id">Tag ID</label>
+            <input class="text-input" type="text" id="rfid-new-id" placeholder="DC:BD:6A:03"
+                   spellcheck="false" autocomplete="off" maxlength="40" />
+          </div>
+          <button class="secondary-btn" id="rfid-scan-btn" type="button" data-i18n="rfid_scan_btn">Scan Tag</button>
+        </div>
+        <div class="rfid-scan-status" id="rfid-scan-status" hidden>
+          <span class="rfid-pulse" aria-hidden="true"></span>
+          <span id="rfid-scan-text">Place an RFID tag near the Xerxes Pi...</span>
+          <button class="clear-btn" id="rfid-scan-cancel" type="button">Cancel</button>
+        </div>
+        <div class="form-row rfid-cmd-row">
+          <div class="form-field form-field--grow">
+            <label class="form-label" for="rfid-new-cmd" data-i18n="rfid_input_cmd">Command to run</label>
+            <input class="text-input" type="text" id="rfid-new-cmd" placeholder="apt update"
+                   spellcheck="false" autocomplete="off" maxlength="1024" />
+          </div>
+          <button class="action-btn" id="rfid-add-btn" type="button" data-i18n="rfid_add_btn">Add Tag</button>
+        </div>
+        <div class="control-feedback" id="rfid-add-feedback"></div>
+      </div>
+
+      <div class="control-card">
+        <div class="control-card-header">
+          <span class="control-card-title" data-i18n="rfid_live_title">Live Scan</span>
+          <span class="service-badge badge-inactive" id="badge-rfid-live">off</span>
+        </div>
+        <p class="control-card-desc" data-i18n="rfid_live_desc">Shows every tag held to the reader, whether it is registered, and the raw read details. Live scan itself never runs commands; the reader still does if it is on.</p>
+        <div class="btn-row">
+          <button class="action-btn" id="rfid-live-btn" type="button" data-i18n="rfid_live_start">Start Live Scan</button>
+          <button class="secondary-btn" id="rfid-live-clear" type="button">Clear</button>
+        </div>
+        <div class="control-feedback rfid-live-feedback" id="rfid-live-feedback"></div>
+        <div class="empty-state rfid-live-empty" id="rfid-live-empty" data-i18n="rfid_live_empty">Start a live scan, then place tags near the reader.</div>
+        <div class="rfid-live-list" id="rfid-live-list" hidden></div>
+      </div>
+
+      <div class="control-card">
+        <div class="control-card-header">
+          <span class="control-card-title" data-i18n="rfid_settings_title">Reader Settings</span>
+          <span class="service-badge badge-neutral" id="rfid-version">—</span>
+        </div>
+        <p class="control-card-desc" data-i18n="rfid_settings_desc">Which I2C bus and address the RFID module is on, and where tags are stored. The defaults suit the PiicoDev module on a Xerxes Pi. I2C must be enabled (raspi-config → Interface Options → I2C).</p>
+        <div class="form-row">
+          <div class="form-field">
+            <label class="form-label" for="rfid-set-bus" data-i18n="rfid_input_bus">I2C Bus</label>
+            <input class="text-input rfid-narrow" type="number" id="rfid-set-bus" min="0" max="1023" placeholder="1" />
+          </div>
+          <div class="form-field">
+            <label class="form-label" for="rfid-set-addr" data-i18n="rfid_input_addr">Address</label>
+            <input class="text-input rfid-narrow" type="text" id="rfid-set-addr" placeholder="0x2C" maxlength="6" spellcheck="false" />
+          </div>
+          <div class="form-field form-field--grow">
+            <label class="form-label" for="rfid-set-tags" data-i18n="rfid_input_tags">Tag File</label>
+            <input class="text-input" type="text" id="rfid-set-tags" placeholder="/root/.xerxes/tags.json" spellcheck="false" maxlength="512" />
+          </div>
+        </div>
+        <div class="btn-row rfid-settings-btns">
+          <button class="action-btn" id="rfid-settings-save" type="button" data-i18n="rfid_settings_save">Save</button>
+          <button class="secondary-btn" id="rfid-probe-btn" type="button" data-i18n="rfid_probe_btn">Test Connection</button>
+          <button class="secondary-btn" id="rfid-settings-defaults" type="button" data-i18n="rfid_settings_defaults">Defaults</button>
+        </div>
+        <div class="control-feedback" id="rfid-settings-feedback"></div>
+      </div>
       </div>
     </section>
 

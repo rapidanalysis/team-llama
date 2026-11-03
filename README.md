@@ -18,6 +18,7 @@ This repository contains the software for the Xerxes Pi carrier board by Rapid A
 To maintain a clean codebase while still compiling to a single executable, the project is divided into modules:
 
 - `src/`: Contains all implementation files (`.cpp`) for routing, Docker management, and system wrappers.
+- `src/rfid/`: The RFID reader (FR-12) for the PiicoDev RFID module on I2C, managed from the **I2C** tab. See `src/rfid/README.md`.
 - `include/`: Contains all header files (`.h`) defining the contracts between modules.
 - `public/`: Contains the frontend assets (`index.html`, `styles.css`, and `containers.json`).
 
@@ -72,6 +73,16 @@ If changes have been made, run the following command then `make` the program aga
 rm ./xerxes-backend
 ```
 
+
+### Running The Tests
+
+```bash
+make test            # build and run every test (the RFID tests use a simulated module, no hardware needed)
+```
+
+### RFID Reader (I2C tab)
+
+Enable I2C first: `sudo raspi-config` → *Interface Options* → *I2C* → *Yes*, then reboot. Tags and settings are saved in `~/.xerxes/` (`/root/.xerxes/` when deployed with systemd). Tag commands run as the backend's user, which is root when deployed.
 
 ## Testing the API
 

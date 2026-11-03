@@ -3,7 +3,8 @@
    Handles: localisation, theme, status check, tab switching,
             output popup, system commands, network info & config,
             hostname rename, Tailscale dashboard, ngrok dashboard,
-            service badges, reboot/shutdown, Llama (local LLM).
+            service badges, reboot/shutdown, Llama (local LLM),
+            I2C (PiicoDev RFID reader).
    ============================================================ */
 
 var API_BASE = "";  // same origin — served by the C++ backend
@@ -90,6 +91,7 @@ navLinks.forEach(function (link) {
     if (target === "network") loadNetworkInfo();
     if (target === "tunnels") loadTailscaleDetails();
     if (target === "llama")   { loadLlamaStatus(); loadLlamaModels(); }
+    if (target === "i2c") rfidOnShow(); else rfidOnHide();
   });
 });
 
@@ -1351,6 +1353,567 @@ chatForm.addEventListener("submit", function (e) {
     }
     setChatBusy(false);
   });
+});
+
+/* ── I2C: RFID READER ──
+   Web version of `xerxes-rfid run` and `manage`. Polls /api/rfid/events
+   while the tab is open. */
+var rfidRunToggle    = document.getElementById("rfid-run-toggle");
+var rfidBadge        = document.getElementById("badge-rfid");
+var rfidModuleState  = document.getElementById("rfid-module-state");
+var rfidBusDisplay   = document.getElementById("rfid-bus-display");
+var rfidLastTag      = document.getElementById("rfid-last-tag");
+var rfidTagCount     = document.getElementById("rfid-tag-count");
+var rfidRunFeedback  = document.getElementById("rfid-run-feedback");
+var rfidLog          = document.getElementById("rfid-log");
+var rfidTagList      = document.getElementById("rfid-tag-list");
+var rfidTagsEmpty    = document.getElementById("rfid-tags-empty");
+var rfidTagsPath     = document.getElementById("rfid-tags-path");
+var rfidTagsFeedback = document.getElementById("rfid-tags-feedback");
+var rfidNewId        = document.getElementById("rfid-new-id");
+var rfidNewCmd       = document.getElementById("rfid-new-cmd");
+var rfidScanBtn      = document.getElementById("rfid-scan-btn");
+var rfidScanStatus   = document.getElementById("rfid-scan-status");
+var rfidScanText     = document.getElementById("rfid-scan-text");
+var rfidAddBtn       = document.getElementById("rfid-add-btn");
+var rfidAddFeedback  = document.getElementById("rfid-add-feedback");
+var rfidLiveBtn      = document.getElementById("rfid-live-btn");
+var rfidLiveBadge    = document.getElementById("badge-rfid-live");
+var rfidLiveList     = document.getElementById("rfid-live-list");
+var rfidLiveEmpty    = document.getElementById("rfid-live-empty");
+var rfidLiveFeedback = document.getElementById("rfid-live-feedback");
+var rfidSetBus       = document.getElementById("rfid-set-bus");
+var rfidSetAddr      = document.getElementById("rfid-set-addr");
+var rfidSetTags      = document.getElementById("rfid-set-tags");
+var rfidSetFeedback  = document.getElementById("rfid-settings-feedback");
+
+var RFID_LOG_PLACEHOLDER = rfidLog.textContent;
+var RFID_MAX_LIVE_ROWS = 50;
+
+var rfidVisible    = false;
+var rfidSeq        = 0;       // last event seq received
+var rfidPollTimer  = null;
+var rfidScanTimer  = null;
+var rfidLive       = false;
+var rfidModuleError = "";     // set while the RFID module can't be reached
+var rfidRunning    = false;
+var rfidTags       = [];
+var rfidEditingId  = null;
+var rfidDefaultTagsPath = "";
+var rfidLogEmpty   = true;
+
+function rfidTime(ms) {
+  var d = ms ? new Date(ms) : new Date();
+  function p(n) { return (n < 10 ? "0" : "") + n; }
+  return p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds());
+}
+
+function renderRfidReader(s) {
+  // Accepts either a /status or an /events response.
+  rfidRunning = !!s.run_enabled;
+  rfidRunToggle.checked  = rfidRunning;
+  rfidRunToggle.disabled = false;
+
+  var mod = s.module || {};
+  rfidModuleError = mod.state === "error" ? (mod.error || "RFID module not found.") : "";
+  var modText = mod.state === "ok" ? "Connected" : mod.state === "error" ? "Not found" : "Idle";
+  rfidModuleState.textContent = modText;
+  rfidModuleState.className   = "mini-card-value" + (mod.state === "ok" ? " rfid-ok" : mod.state === "error" ? " rfid-bad" : "");
+  rfidModuleState.title       = mod.state === "idle" ? "Not in use: the reader is only polled while it is on, scanning or live scanning." : (mod.error || "");
+
+  if (s.busy_command) {
+    setRfidBadge("running command", "badge-neutral");
+  } else if (rfidRunning && mod.state === "error") {
+    setRfidBadge("error", "badge-failed");
+  } else if (rfidRunning) {
+    setRfidBadge("running", "badge-active");
+  } else {
+    setRfidBadge("stopped", "badge-inactive");
+  }
+
+  if (mod.state === "error" && mod.error) {
+    showFeedback(rfidRunFeedback, "RFID module: " + mod.error, "error");
+  } else if (s.busy_command) {
+    showFeedback(rfidRunFeedback, "Running: " + s.busy_command, "");
+  } else if (rfidRunFeedback.classList.contains("error") && mod.state !== "error") {
+    showFeedback(rfidRunFeedback, "", "");
+  }
+
+  if (s.last_tag) rfidLastTag.textContent = s.last_tag;
+  setRfidLive(typeof s.live_active === "boolean" ? s.live_active : rfidLive);
+}
+
+function setRfidBadge(text, cls) {
+  rfidBadge.textContent = text;
+  rfidBadge.className   = "service-badge " + cls;
+}
+
+function loadRfidStatus(fillSettings) {
+  llamaRequest("GET", "/api/rfid/status", null, 5000, function (err, data) {
+    if (err) { setRfidBadge("unknown", "badge-neutral"); return; }
+    renderRfidReader(data);
+    rfidBusDisplay.textContent = data.device + " · " + data.address;
+    document.getElementById("rfid-version").textContent = "xerxes-rfid v" + data.version;
+    rfidDefaultTagsPath = data.default_tags_path || "";
+    rfidSetTags.placeholder = rfidDefaultTagsPath || rfidSetTags.placeholder;
+    if (fillSettings) {
+      rfidSetBus.value  = data.bus;
+      rfidSetAddr.value = data.address;
+      rfidSetTags.value = data.tags_path;
+    }
+    if (data.scan && data.scan.state === "waiting" && !rfidScanTimer) rfidPollScan();
+  });
+}
+
+rfidRunToggle.addEventListener("change", function () {
+  var enable = rfidRunToggle.checked;
+  rfidRunToggle.disabled = true;
+  showFeedback(rfidRunFeedback, enable ? "Starting reader..." : "Stopping reader...", "");
+  llamaRequest("POST", "/api/rfid/run", { enabled: enable }, 8000, function (err, data) {
+    rfidRunToggle.disabled = false;
+    if (err || !data.success) {
+      showFeedback(rfidRunFeedback, err || data.error || "Could not change the reader.", "error");
+    } else {
+      showFeedback(rfidRunFeedback, enable
+        ? "Reader on. Tap a registered tag to run its command."
+        : "Reader off. Tags will not run commands.", "success");
+    }
+    loadRfidStatus(false);
+    rfidPollEvents();
+  });
+});
+
+function rfidAppendLog(text) {
+  if (rfidLogEmpty) { rfidLog.textContent = ""; rfidLogEmpty = false; }
+  var nearBottom = rfidLog.scrollHeight - rfidLog.scrollTop - rfidLog.clientHeight < 40;
+  rfidLog.textContent += text;
+  if (rfidLog.textContent.length > 60000) rfidLog.textContent = rfidLog.textContent.slice(-50000);
+  if (nearBottom) rfidLog.scrollTop = rfidLog.scrollHeight;
+}
+
+document.getElementById("rfid-log-clear").addEventListener("click", function () {
+  rfidLog.textContent = RFID_LOG_PLACEHOLDER;
+  rfidLogEmpty = true;
+});
+
+function rfidHandleEvent(ev) {
+  var t = "[" + rfidTime(ev.time_ms) + "] ";
+  if (ev.kind === "run") {
+    if (ev.tags_error) {
+      rfidAppendLog(t + ev.id + "\nTag file error, no commands run: " + ev.tags_error + "\n\n");
+    } else if (ev.registered) {
+      rfidAppendLog(t + ev.id + "\nTag known, running command: " + ev.command + "\n");
+    } else {
+      rfidAppendLog(t + ev.id + "\nTag unknown, no commands run\n\n");
+    }
+  } else if (ev.kind === "result") {
+    var out = ev.output || "";
+    if (out && out.charAt(out.length - 1) !== "\n") out += "\n";
+    if (ev.truncated) out += "... (output truncated)\n";
+    var secs = (ev.duration_ms / 1000).toFixed(1);
+    rfidAppendLog(out + t + "Command finished with exit code " + ev.exit_code + " (" + secs + " s)\n\n");
+  } else if (ev.kind === "error") {
+    rfidAppendLog(t + "Error: " + ev.message + "\n\n");
+  } else if (ev.kind === "info") {
+    rfidAppendLog(t + ev.message + "\n\n");
+  } else if (ev.kind === "live") {
+    rfidAddLiveRow(ev);
+  }
+}
+
+function rfidPollEvents() {
+  clearTimeout(rfidPollTimer);
+  if (!rfidVisible) return;
+  llamaRequest("GET", "/api/rfid/events?since=" + rfidSeq, null, 5000, function (err, data) {
+    if (!err && data && Array.isArray(data.events)) {
+      data.events.forEach(rfidHandleEvent);
+      if (typeof data.next === "number") rfidSeq = data.next;
+      renderRfidReader(data);
+    }
+    if (rfidVisible) rfidPollTimer = setTimeout(rfidPollEvents, rfidLive ? 500 : 1500);
+  });
+}
+
+function loadRfidTags() {
+  llamaRequest("GET", "/api/rfid/tags", null, 5000, function (err, data) {
+    if (err) { showFeedback(rfidTagsFeedback, err, "error"); return; }
+    if (data.path) rfidTagsPath.textContent = "Stored in " + data.path + ".";
+    if (!data.success) {
+      rfidTags = [];
+      renderRfidTags();
+      rfidTagCount.textContent = "—";
+      showFeedback(rfidTagsFeedback, "Error: " + data.error + " The file has not been changed; fix or remove it to manage tags here.", "error");
+      return;
+    }
+    if (rfidTagsFeedback.classList.contains("error")) showFeedback(rfidTagsFeedback, "", "");
+    rfidTags = data.tags || [];
+    renderRfidTags();
+  });
+}
+
+function renderRfidTags() {
+  rfidTagList.textContent = "";
+  rfidTagsEmpty.hidden = rfidTags.length > 0;
+  rfidTagList.hidden   = rfidTags.length === 0;
+  rfidTagCount.textContent = String(rfidTags.length);
+
+  rfidTags.forEach(function (tag, i) {
+    var row = document.createElement("div");
+    row.className = "rfid-tag-row";
+    row.setAttribute("data-id", tag.id);
+
+    var num = document.createElement("span");
+    num.className = "rfid-tag-num";
+    num.textContent = (i + 1) + ")";
+
+    var id = document.createElement("span");
+    id.className = "rfid-tag-id";
+    id.textContent = tag.id;
+
+    var arrow = document.createElement("span");
+    arrow.className = "rfid-tag-arrow";
+    arrow.textContent = "→";
+    arrow.setAttribute("aria-hidden", "true");
+
+    var actions = document.createElement("span");
+    actions.className = "rfid-tag-actions";
+
+    row.appendChild(num);
+    row.appendChild(id);
+    row.appendChild(arrow);
+
+    if (rfidEditingId === tag.id) {
+      row.classList.add("editing");
+      var input = document.createElement("input");
+      input.className = "text-input rfid-tag-cmd-input";
+      input.type = "text";
+      input.value = tag.command;
+      input.maxLength = 1024;
+      input.spellcheck = false;
+      input.setAttribute("aria-label", "Command for " + tag.id);
+      input.addEventListener("keydown", function (e) {
+        if (e.key === "Enter") saveRfidEdit(tag.id, input.value, saveBtn);
+        if (e.key === "Escape") { rfidEditingId = null; renderRfidTags(); }
+      });
+      var saveBtn = rfidSmallBtn("Save", "action-btn", function () { saveRfidEdit(tag.id, input.value, saveBtn); });
+      var cancelBtn = rfidSmallBtn("Cancel", "secondary-btn", function () { rfidEditingId = null; renderRfidTags(); });
+      row.appendChild(input);
+      actions.appendChild(saveBtn);
+      actions.appendChild(cancelBtn);
+      row.appendChild(actions);
+      rfidTagList.appendChild(row);
+      setTimeout(function () { input.focus(); input.select(); }, 0);
+      return;
+    }
+
+    var cmd = document.createElement("span");
+    cmd.className = "rfid-tag-cmd";
+    cmd.textContent = tag.command;
+    cmd.title = tag.command;
+    row.appendChild(cmd);
+    actions.appendChild(rfidSmallBtn("Edit", "secondary-btn", function () {
+      rfidEditingId = tag.id;
+      showFeedback(rfidTagsFeedback, "", "");
+      renderRfidTags();
+    }));
+    actions.appendChild(rfidSmallBtn("Delete", "secondary-btn rfid-delete-btn", function () { deleteRfidTag(tag); }));
+    row.appendChild(actions);
+    rfidTagList.appendChild(row);
+  });
+}
+
+function rfidSmallBtn(label, cls, onClick) {
+  var b = document.createElement("button");
+  b.type = "button";
+  b.className = cls + " rfid-small-btn";
+  b.textContent = label;
+  b.addEventListener("click", onClick);
+  return b;
+}
+
+function saveRfidEdit(id, command, btn) {
+  command = command.trim();
+  if (!command) { showFeedback(rfidTagsFeedback, "Command cannot be empty.", "error"); return; }
+  btn.disabled = true;
+  llamaRequest("POST", "/api/rfid/tags", { id: id, command: command, mode: "edit" }, 8000, function (err, data) {
+    btn.disabled = false;
+    if (err || !data.success) {
+      showFeedback(rfidTagsFeedback, err || data.error || "Could not update the tag.", "error");
+      return;
+    }
+    rfidEditingId = null;
+    showFeedback(rfidTagsFeedback, data.message || ("Tag " + id + " updated."), "success");
+    loadRfidTags();
+  });
+}
+
+function deleteRfidTag(tag) {
+  if (!confirm("Delete " + tag.id + " (\"" + tag.command + "\")?")) return;
+  llamaRequest("POST", "/api/rfid/tags/delete", { id: tag.id }, 8000, function (err, data) {
+    if (err || !data.success) {
+      showFeedback(rfidTagsFeedback, err || data.error || "Could not delete the tag.", "error");
+    } else {
+      if (rfidEditingId === tag.id) rfidEditingId = null;
+      showFeedback(rfidTagsFeedback, data.message || ("Tag " + tag.id + " deleted."), "success");
+    }
+    loadRfidTags();
+  });
+}
+
+function editRfidTagInstead(id) {
+  rfidEditingId = id;
+  renderRfidTags();
+  var row = rfidTagList.querySelector('.rfid-tag-row[data-id="' + id + '"]');
+  if (row) row.scrollIntoView({ behavior: "smooth", block: "center" });
+}
+
+document.getElementById("rfid-tags-refresh").addEventListener("click", function () {
+  showFeedback(rfidTagsFeedback, "", "");
+  loadRfidTags();
+});
+
+function showRfidAlreadyRegistered(id, existing) {
+  rfidAddFeedback.textContent = "";
+  rfidAddFeedback.className = "control-feedback error";
+  rfidAddFeedback.appendChild(document.createTextNode(
+    "Tag " + id + " is already registered with command: \"" + existing + "\" "));
+  var btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "clear-btn rfid-inline-btn";
+  btn.textContent = "Edit it instead";
+  btn.addEventListener("click", function () {
+    showFeedback(rfidAddFeedback, "", "");
+    rfidNewId.value = "";
+    rfidNewCmd.value = "";
+    editRfidTagInstead(id);
+  });
+  rfidAddFeedback.appendChild(btn);
+}
+
+function setRfidScanning(on, text) {
+  rfidScanStatus.hidden = !on;
+  rfidScanBtn.disabled  = on;
+  rfidScanBtn.textContent = on ? "Scanning..." : "Scan Tag";
+  if (text) rfidScanText.textContent = text;
+}
+
+rfidScanBtn.addEventListener("click", function () {
+  showFeedback(rfidAddFeedback, "", "");
+  setRfidScanning(true, "Place an RFID tag near the Xerxes Pi...");
+  llamaRequest("POST", "/api/rfid/scan/start", null, 5000, function (err, data) {
+    if (err || !data.success) {
+      setRfidScanning(false);
+      showFeedback(rfidAddFeedback, err || data.error || "Could not start scanning.", "error");
+      return;
+    }
+    rfidPollScan();
+  });
+});
+
+function rfidPollScan() {
+  clearTimeout(rfidScanTimer);
+  setRfidScanning(true);
+  llamaRequest("GET", "/api/rfid/scan", null, 5000, function (err, data) {
+    rfidScanTimer = null;
+    if (err) { setRfidScanning(false); showFeedback(rfidAddFeedback, err, "error"); return; }
+
+    if (data.state === "waiting") {
+      var mod = data.module || {};
+      if (mod.state === "error") {
+        rfidScanText.textContent = "Can't reach the RFID module: " + mod.error + " (retrying, " + data.seconds_left + " s left)";
+      } else {
+        rfidScanText.textContent = "Place an RFID tag near the Xerxes Pi... (" + data.seconds_left + " s)";
+      }
+      rfidScanTimer = setTimeout(rfidPollScan, 400);
+      return;
+    }
+    setRfidScanning(false);
+    if (data.state === "done") {
+      rfidNewId.value = data.id;
+      rfidLastTag.textContent = data.id;
+      if (data.registered) {
+        showRfidAlreadyRegistered(data.id, data.existing_command);
+      } else {
+        showFeedback(rfidAddFeedback, "Scanned: " + data.id + (data.type ? " (" + data.type + ")" : "") +
+                     ". Enter the command to run, then click Add Tag.", "success");
+        rfidNewCmd.focus();
+      }
+    } else if (data.state === "timeout") {
+      showFeedback(rfidAddFeedback, "No tag detected. Hold the tag flat against the reader and try again.", "error");
+    } else if (data.state === "cancelled") {
+      showFeedback(rfidAddFeedback, "Scan cancelled.", "");
+    }
+  });
+}
+
+document.getElementById("rfid-scan-cancel").addEventListener("click", function () {
+  clearTimeout(rfidScanTimer);
+  rfidScanTimer = null;
+  llamaRequest("POST", "/api/rfid/scan/cancel", null, 5000, function () {
+    setRfidScanning(false);
+    showFeedback(rfidAddFeedback, "Scan cancelled.", "");
+  });
+});
+
+function addRfidTag() {
+  var id  = rfidNewId.value.trim();
+  var cmd = rfidNewCmd.value.trim();
+  if (!id)  { showFeedback(rfidAddFeedback, "Scan a tag or enter its ID first.", "error"); rfidNewId.focus(); return; }
+  if (!cmd) { showFeedback(rfidAddFeedback, "Command cannot be empty.", "error"); rfidNewCmd.focus(); return; }
+
+  rfidAddBtn.disabled = true;
+  llamaRequest("POST", "/api/rfid/tags", { id: id, command: cmd, mode: "add" }, 8000, function (err, data, status) {
+    rfidAddBtn.disabled = false;
+    if (!err && status === 409 && data.existing_command !== undefined) {
+      showRfidAlreadyRegistered(data.id, data.existing_command);
+      return;
+    }
+    if (err || !data.success) {
+      showFeedback(rfidAddFeedback, err || data.error || "Could not add the tag.", "error");
+      return;
+    }
+    rfidNewId.value = "";
+    rfidNewCmd.value = "";
+    showFeedback(rfidAddFeedback, data.message || "Tag added.", "success");
+    loadRfidTags();
+  });
+}
+
+rfidAddBtn.addEventListener("click", addRfidTag);
+rfidNewCmd.addEventListener("keydown", function (e) { if (e.key === "Enter") addRfidTag(); });
+
+function setRfidLive(on) {
+  rfidLive = on;
+  var failing = on && rfidModuleError;
+  rfidLiveBtn.textContent = on ? "Stop Live Scan" : "Start Live Scan";
+  rfidLiveBadge.textContent = failing ? "error" : on ? "scanning" : "off";
+  rfidLiveBadge.className = "service-badge " + (failing ? "badge-failed" : on ? "badge-active" : "badge-inactive");
+  showFeedback(rfidLiveFeedback, failing ? "Not found: " + rfidModuleError : "", failing ? "error" : "");
+  if (rfidLiveList.childElementCount === 0) {
+    rfidLiveEmpty.textContent = failing ? "No tags can be read until the RFID module is connected."
+      : on ? "Live scan running: place tags near the reader."
+      : "Start a live scan, then place tags near the reader.";
+  }
+}
+
+rfidLiveBtn.addEventListener("click", function () {
+  var start = !rfidLive;
+  rfidLiveBtn.disabled = true;
+  llamaRequest("POST", start ? "/api/rfid/live/start" : "/api/rfid/live/stop", null, 5000, function (err, data) {
+    rfidLiveBtn.disabled = false;
+    if (err || !data.success) { alert(err || data.error || "Could not change live scan."); return; }
+    setRfidLive(start);
+    rfidPollEvents();
+  });
+});
+
+document.getElementById("rfid-live-clear").addEventListener("click", function () {
+  rfidLiveList.textContent = "";
+  rfidLiveList.hidden = true;
+  rfidLiveEmpty.hidden = false;
+  setRfidLive(rfidLive);
+});
+
+function rfidAddLiveRow(ev) {
+  rfidLiveEmpty.hidden = true;
+  rfidLiveList.hidden  = false;
+
+  var row = document.createElement("div");
+  row.className = "rfid-live-row";
+
+  var head = document.createElement("div");
+  head.className = "rfid-live-head";
+  var time = document.createElement("span");
+  time.className = "rfid-live-time";
+  time.textContent = rfidTime(ev.time_ms);
+  var id = document.createElement("span");
+  id.className = "rfid-tag-id";
+  id.textContent = ev.id;
+  var type = document.createElement("span");
+  type.className = "service-badge badge-neutral";
+  type.textContent = ev.type || "tag";
+  var status = document.createElement("span");
+  status.className = "rfid-live-status " + (ev.registered ? "registered" : "unregistered");
+  status.textContent = ev.registered ? "registered → \"" + ev.command + "\"" : "not registered";
+  head.appendChild(time);
+  head.appendChild(id);
+  head.appendChild(type);
+  head.appendChild(status);
+
+  var detail = document.createElement("div");
+  detail.className = "rfid-live-detail";
+  detail.textContent = "detail: " + ev.detail + (ev.tags_error ? "\ntag file error: " + ev.tags_error : "");
+
+  row.appendChild(head);
+  row.appendChild(detail);
+  rfidLiveList.insertBefore(row, rfidLiveList.firstChild);
+  while (rfidLiveList.childElementCount > RFID_MAX_LIVE_ROWS) rfidLiveList.removeChild(rfidLiveList.lastChild);
+  rfidLastTag.textContent = ev.id;
+}
+
+document.getElementById("rfid-settings-save").addEventListener("click", function () {
+  var btn  = this;
+  var bus  = rfidSetBus.value.trim();
+  var addr = rfidSetAddr.value.trim();
+  if (!/^\d{1,4}$/.test(bus)) { showFeedback(rfidSetFeedback, "I2C bus must be a number, e.g. 1 for /dev/i2c-1.", "error"); return; }
+  if (!/^(0x[0-9a-fA-F]{1,2}|\d{1,3})$/.test(addr)) { showFeedback(rfidSetFeedback, "Address must look like 0x2C.", "error"); return; }
+  btn.disabled = true;
+  llamaRequest("POST", "/api/rfid/settings",
+    { bus: parseInt(bus, 10), address: addr, tags_path: rfidSetTags.value.trim() }, 8000,
+    function (err, data) {
+      btn.disabled = false;
+      if (err || !data.success) { showFeedback(rfidSetFeedback, err || data.error || "Could not save settings.", "error"); return; }
+      showFeedback(rfidSetFeedback, "Settings saved.", "success");
+      loadRfidStatus(true);
+      loadRfidTags();
+    });
+});
+
+document.getElementById("rfid-settings-defaults").addEventListener("click", function () {
+  rfidSetBus.value  = "1";
+  rfidSetAddr.value = "0x2C";
+  rfidSetTags.value = rfidDefaultTagsPath;
+  showFeedback(rfidSetFeedback, "Defaults filled in. Click Save to apply.", "");
+});
+
+document.getElementById("rfid-probe-btn").addEventListener("click", function () {
+  var btn = this;
+  btn.disabled = true;
+  showFeedback(rfidSetFeedback, "Checking the RFID module...", "");
+  llamaRequest("POST", "/api/rfid/probe", null, 10000, function (err, data) {
+    btn.disabled = false;
+    if (err) showFeedback(rfidSetFeedback, err, "error");
+    else if (!data.success) showFeedback(rfidSetFeedback, "Not found: " + data.error, "error");
+    else showFeedback(rfidSetFeedback, data.message, "success");
+    loadRfidStatus(false);
+  });
+});
+
+function rfidOnShow() {
+  if (rfidVisible) return;
+  rfidVisible = true;
+  loadRfidStatus(true);
+  loadRfidTags();
+  rfidPollEvents();
+}
+
+function rfidOnHide() {
+  if (!rfidVisible) return;
+  rfidVisible = false;
+  clearTimeout(rfidPollTimer);
+  // Leaving the tab ends live scan and any pending scan, like Ctrl+C in `manage`
+  if (rfidLive) { llamaRequest("POST", "/api/rfid/live/stop", null, 5000, function () {}); setRfidLive(false); }
+  if (rfidScanTimer) {
+    clearTimeout(rfidScanTimer);
+    rfidScanTimer = null;
+    llamaRequest("POST", "/api/rfid/scan/cancel", null, 5000, function () {});
+    setRfidScanning(false);
+  }
+}
+
+window.addEventListener("pagehide", function () {
+  if (rfidLive && navigator.sendBeacon) navigator.sendBeacon(API_BASE + "/api/rfid/live/stop");
+  if (rfidScanTimer && navigator.sendBeacon) navigator.sendBeacon(API_BASE + "/api/rfid/scan/cancel");
 });
 
 /* ── INIT ── */

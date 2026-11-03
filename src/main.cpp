@@ -2,12 +2,16 @@
 #include "httplib.h"
 #include "router.h"
 #include "system_ops.h"
+#include "rfid_manager.h"
 
 #define PORT 8000
 
 int main() {
     // Initialize system operations and command wrapper
     system_ops::initialize();
+
+    // RFID reader (I2C tab)
+    rfid_manager::initialize();
 
     httplib::Server svr;
 

@@ -4,9 +4,11 @@
 #include "docker_manager.h"
 #include "llama_manager.h"
 #include "newt_manager.h"
+#include "rfid_manager.h"
 #include "json.hpp"
 #include <iostream>
 #include <cctype>
+#include <cstdlib>
 
 // Helper: adds CORS headers so the frontend JS can call the API
 static void set_cors_headers(httplib::Response& res) {
@@ -517,6 +519,126 @@ void setup_routes(httplib::Server& svr) {
             res.status = 502;
             res.set_content(error.dump(), "application/json");
         }
+    });
+
+    // ------------------------------------------------------------------
+    // RFID reader (I2C tab), see include/rfid_manager.h.
+    // Responses are { "success": bool, "error": "...", ... }.
+    // ------------------------------------------------------------------
+    auto rfid_send = [](httplib::Response& res, const rfid_manager::Reply& r) {
+        res.status = r.http_status;
+        res.set_content(r.body.dump(), "application/json");
+    };
+    auto rfid_bad_body = [](httplib::Response& res) {
+        nlohmann::json error = { {"success", false}, {"error", "Invalid request body"} };
+        res.status = 400;
+        res.set_content(error.dump(), "application/json");
+    };
+
+    // GET /api/rfid/status
+    svr.Get("/api/rfid/status", [rfid_send](const httplib::Request&, httplib::Response& res) {
+        set_cors_headers(res);
+        rfid_send(res, rfid_manager::status());
+    });
+
+    // POST /api/rfid/run  { "enabled": true|false }
+    svr.Post("/api/rfid/run", [rfid_send, rfid_bad_body](const httplib::Request& req, httplib::Response& res) {
+        set_cors_headers(res);
+        try {
+            nlohmann::json body = nlohmann::json::parse(req.body);
+            rfid_send(res, rfid_manager::set_run_enabled(body.at("enabled").get<bool>()));
+        } catch (const std::exception&) { rfid_bad_body(res); }
+    });
+
+    // POST /api/rfid/settings  { "bus": 1, "address": "0x2C", "tags_path": "..." }
+    // address may be a number or a hex string; empty tags_path = default.
+    svr.Post("/api/rfid/settings", [rfid_send, rfid_bad_body](const httplib::Request& req, httplib::Response& res) {
+        set_cors_headers(res);
+        try {
+            nlohmann::json body = nlohmann::json::parse(req.body);
+            auto as_int = [](const nlohmann::json& v) -> long {
+                if (v.is_number_integer()) return v.get<long>();
+                std::string s = v.get<std::string>();
+                char* end = nullptr;
+                long n = std::strtol(s.c_str(), &end, 0);
+                if (s.empty() || *end != '\0') return -1;
+                return n;
+            };
+            long bus  = as_int(body.at("bus"));
+            long addr = as_int(body.at("address"));
+            std::string path = body.value("tags_path", "");
+            rfid_send(res, rfid_manager::update_settings(static_cast<int>(bus), static_cast<int>(addr), path));
+        } catch (const std::exception&) { rfid_bad_body(res); }
+    });
+
+    // POST /api/rfid/probe
+    svr.Post("/api/rfid/probe", [rfid_send](const httplib::Request&, httplib::Response& res) {
+        set_cors_headers(res);
+        rfid_send(res, rfid_manager::probe());
+    });
+
+    // GET /api/rfid/tags
+    svr.Get("/api/rfid/tags", [rfid_send](const httplib::Request&, httplib::Response& res) {
+        set_cors_headers(res);
+        rfid_send(res, rfid_manager::list_tags());
+    });
+
+    // POST /api/rfid/tags  { "id", "command", "mode": "add"|"edit" }
+    svr.Post("/api/rfid/tags", [rfid_send, rfid_bad_body](const httplib::Request& req, httplib::Response& res) {
+        set_cors_headers(res);
+        try {
+            nlohmann::json body = nlohmann::json::parse(req.body);
+            std::string id      = body.value("id", "");
+            std::string command = body.value("command", "");
+            std::string mode    = body.value("mode", "add");
+            std::cout << "[RFID] " << mode << " tag " << id << "\n";
+            rfid_send(res, mode == "edit" ? rfid_manager::edit_tag(id, command)
+                                          : rfid_manager::add_tag(id, command));
+        } catch (const std::exception&) { rfid_bad_body(res); }
+    });
+
+    // POST /api/rfid/tags/delete  { "id": "DC:BD:6A:03" }
+    svr.Post("/api/rfid/tags/delete", [rfid_send, rfid_bad_body](const httplib::Request& req, httplib::Response& res) {
+        set_cors_headers(res);
+        try {
+            nlohmann::json body = nlohmann::json::parse(req.body);
+            rfid_send(res, rfid_manager::delete_tag(body.value("id", "")));
+        } catch (const std::exception&) { rfid_bad_body(res); }
+    });
+
+    // Scan a tag to register it: start, then poll GET /api/rfid/scan until
+    // state is no longer "waiting".
+    svr.Post("/api/rfid/scan/start", [rfid_send](const httplib::Request&, httplib::Response& res) {
+        set_cors_headers(res);
+        rfid_send(res, rfid_manager::start_scan());
+    });
+    svr.Get("/api/rfid/scan", [rfid_send](const httplib::Request&, httplib::Response& res) {
+        set_cors_headers(res);
+        rfid_send(res, rfid_manager::scan_state());
+    });
+    svr.Post("/api/rfid/scan/cancel", [rfid_send](const httplib::Request&, httplib::Response& res) {
+        set_cors_headers(res);
+        rfid_send(res, rfid_manager::cancel_scan());
+    });
+
+    // Live scan. Reads arrive through /api/rfid/events.
+    svr.Post("/api/rfid/live/start", [rfid_send](const httplib::Request&, httplib::Response& res) {
+        set_cors_headers(res);
+        rfid_send(res, rfid_manager::start_live());
+    });
+    svr.Post("/api/rfid/live/stop", [rfid_send](const httplib::Request&, httplib::Response& res) {
+        set_cors_headers(res);
+        rfid_send(res, rfid_manager::stop_live());
+    });
+
+    // GET /api/rfid/events?since=N
+    svr.Get("/api/rfid/events", [rfid_send](const httplib::Request& req, httplib::Response& res) {
+        set_cors_headers(res);
+        uint64_t since = 0;
+        if (req.has_param("since")) {
+            try { since = std::stoull(req.get_param_value("since")); } catch (const std::exception&) { since = 0; }
+        }
+        rfid_send(res, rfid_manager::events(since));
     });
 
     // ------------------------------------------------------------------

@@ -91,3 +91,6 @@ compile_commands.json
 
 # Downloaded llama models
 models/
+
+# Vagrant local VM state (never commit: contains an SSH private key)
+.vagrant/

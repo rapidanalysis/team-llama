@@ -89,7 +89,7 @@ navLinks.forEach(function (link) {
 
     // Lazy-load section data
     if (target === "network") loadNetworkInfo();
-    if (target === "tunnels") loadTailscaleDetails();
+    if (target === "tunnels") { loadTailscaleDetails(); loadNewtStatus(); }
     if (target === "llama")   { loadLlamaStatus(); loadLlamaModels(); }
     if (target === "i2c") rfidOnShow(); else rfidOnHide();
   });
@@ -600,12 +600,27 @@ var newtBadge        = document.getElementById("badge-newt");
 var newtStateEl      = document.getElementById("newt-state");
 var newtEndpointShow = document.getElementById("newt-endpoint-display");
 var newtIdShow       = document.getElementById("newt-id-display");
+var newtVersionShow  = document.getElementById("newt-version-display");
 var newtEndpointIn   = document.getElementById("newt-endpoint");
 var newtIdIn         = document.getElementById("newt-id");
 var newtSecretIn     = document.getElementById("newt-secret");
 var newtEnableBtn    = document.getElementById("newt-enable-btn");
 var newtFeedback     = document.getElementById("newt-feedback");
 var newtPollTimer    = null;
+
+// Docker access fixes (D-01)
+var newtFixBox       = document.getElementById("newt-docker-fix");
+var newtFixMessage   = document.getElementById("newt-fix-message");
+var newtFixOptions   = document.getElementById("newt-fix-options");
+
+// Updates
+var newtAutoToggle   = document.getElementById("newt-auto-toggle");
+var newtUpdateSummary = document.getElementById("newt-update-summary");
+var newtCheckBtn     = document.getElementById("newt-check-btn");
+var newtUpdateBtn    = document.getElementById("newt-update-btn");
+var newtRollbackBtn  = document.getElementById("newt-rollback-btn");
+var newtUpdateFeedback = document.getElementById("newt-update-feedback");
+var newtUpdateBusy   = false;
 
 var NEWT_STATES = {
   connected:          { badge: "connected",   cls: "badge-active",   label: "Connected" },
@@ -631,6 +646,7 @@ function renderNewtStatus(data) {
   newtStateEl.textContent = st.label;
   newtEndpointShow.textContent = data.endpoint || "—";
   newtIdShow.textContent       = data.newt_id  || "—";
+  newtVersionShow.textContent  = data.version  || "—";
 
   // Pre-fill the form with the saved settings (never the secret)
   if (!newtEndpointIn.value && data.endpoint) newtEndpointIn.value = data.endpoint;
@@ -642,6 +658,12 @@ function renderNewtStatus(data) {
   } else if (data.state === "connected") {
     showFeedback(newtFeedback, "Tunnel is up. This device is reachable through Pangolin.", "success");
   }
+
+  // Show how to fix Docker access, or hide the box once it works
+  if (data.state === "docker_unavailable") loadNewtDockerFix();
+  else if (data.state !== "not_configured" || !newtFixBox.hidden) newtFixBox.hidden = true;
+
+  renderNewtUpdates(data);
 }
 
 // llamaRequest() (Llama section) is a generic JSON XHR helper — reused here.
@@ -671,7 +693,93 @@ function pollNewtStatus(triesLeft) {
   });
 }
 
-newtEnableBtn.addEventListener("click", function () {
+/* Docker access check (D-01): explain the problem and show copyable fixes */
+function loadNewtDockerFix(cb) {
+  llamaRequest("GET", "/api/newt/docker-check", null, 15000, function (err, data) {
+    if (err) { if (cb) cb(null); return; }
+    renderNewtDockerFix(data);
+    if (cb) cb(data.state);
+  });
+}
+
+function renderNewtDockerFix(data) {
+  if (data.state === "ok") { newtFixBox.hidden = true; return; }
+
+  newtFixMessage.textContent = data.message + (data.detail ? " Docker said: " + data.detail : "");
+  newtFixOptions.textContent = "";
+
+  (data.fixes || []).forEach(function (fix, i) {
+    var opt = document.createElement("div");
+    opt.className = "newt-fix-option";
+
+    var title = document.createElement("div");
+    title.className   = "newt-fix-option-title";
+    title.textContent = (data.fixes.length > 1 ? "Option " + (i + 1) + ": " : "") + fix.title;
+    opt.appendChild(title);
+
+    var why = document.createElement("div");
+    why.className   = "newt-fix-option-why";
+    why.textContent = fix.why;
+    opt.appendChild(why);
+
+    var row  = document.createElement("div");
+    row.className = "newt-fix-commands";
+    var pre  = document.createElement("pre");
+    pre.textContent = fix.commands.join("\n");
+    var copy = document.createElement("button");
+    copy.type = "button";
+    copy.className   = "secondary-btn";
+    copy.textContent = "Copy";
+    copy.addEventListener("click", function () { copyNewtCommands(pre, copy); });
+    row.appendChild(pre);
+    row.appendChild(copy);
+    opt.appendChild(row);
+
+    if (fix.after) {
+      var after = document.createElement("div");
+      after.className   = "newt-fix-option-after";
+      after.textContent = fix.after;
+      opt.appendChild(after);
+    }
+    newtFixOptions.appendChild(opt);
+  });
+  newtFixBox.hidden = false;
+}
+
+// The clipboard API only works over HTTPS or localhost; otherwise select the
+// text so the user can press Ctrl+C.
+function copyNewtCommands(pre, btn) {
+  var text = pre.textContent;
+  function selected() {
+    var range = document.createRange();
+    range.selectNodeContents(pre);
+    var sel = window.getSelection();
+    sel.removeAllRanges();
+    sel.addRange(range);
+    btn.textContent = "Press Ctrl+C";
+  }
+  if (navigator.clipboard && window.isSecureContext) {
+    navigator.clipboard.writeText(text).then(function () { btn.textContent = "Copied"; }, selected);
+  } else {
+    selected();
+  }
+  setTimeout(function () { btn.textContent = "Copy"; }, 2500);
+}
+
+document.getElementById("newt-fix-recheck").addEventListener("click", function () {
+  var btn = this;
+  btn.disabled = true;
+  loadNewtDockerFix(function (state) {
+    btn.disabled = false;
+    if (state === "ok") {
+      showFeedback(newtFeedback, "Docker is working now. Click Enable to start Newt.", "success");
+      loadNewtStatus();
+    }
+  });
+});
+
+/* Enable: checks Docker access and other copies of Newt (D-05) first */
+function enableNewt(force) {
   var endpoint = newtEndpointIn.value.trim();
   var newtId   = newtIdIn.value.trim();
   var secret   = newtSecretIn.value.trim();
@@ -695,21 +803,44 @@ newtEnableBtn.addEventListener("click", function () {
   newtEnableBtn.textContent = "Enabling...";
   showFeedback(newtFeedback, "Starting Newt... the first time can take a minute while it downloads.", "");
 
-  llamaRequest("POST", "/api/newt/enable", { endpoint: endpoint, newt_id: newtId, secret: secret }, 300000,
+  llamaRequest("POST", "/api/newt/enable",
+    { endpoint: endpoint, newt_id: newtId, secret: secret, force: !!force }, 300000,
     function (err, data) {
       newtEnableBtn.disabled    = false;
       newtEnableBtn.textContent = "Enable";
       if (err) { showFeedback(newtFeedback, err, "error"); return; }
+
+      if (data.code === "conflict") {
+        var list = (data.conflicts || []).map(function (c) {
+          return "  • " + c.name + " (" + c.detail + ")";
+        }).join("\n");
+        var ok = confirm(
+          "Another copy of Newt is already running on this device:\n\n" + list + "\n\n" +
+          "If it uses the same Pangolin Site, the two will keep disconnecting each other, " +
+          "and anything reached through that tunnel (such as a web SSH session) may drop.\n\n" +
+          "Start Newt anyway?");
+        if (ok) enableNewt(true);
+        else showFeedback(newtFeedback, "Not started. Another copy of Newt is running on this device.", "error");
+        return;
+      }
+      if (data.code === "docker_access") {
+        showFeedback(newtFeedback, data.error + " See below for how to fix it.", "error");
+        loadNewtDockerFix();
+        return;
+      }
       if (!data.success) {
         showFeedback(newtFeedback, data.error || "Could not start Newt.", "error");
         if (data.output) showOutputPopup("Newt — Enable", data.output);
         return;
       }
       newtSecretIn.value = "";
+      newtFixBox.hidden  = true;
       showFeedback(newtFeedback, "Newt started. Waiting for the tunnel to connect...", "");
       pollNewtStatus(15);
     });
-});
+}
+
+newtEnableBtn.addEventListener("click", function () { enableNewt(false); });
 
 document.getElementById("newt-disable-btn").addEventListener("click", function () {
   var btn = this;
@@ -722,6 +853,7 @@ document.getElementById("newt-disable-btn").addEventListener("click", function (
     if (err)               showFeedback(newtFeedback, err, "error");
     else if (!data.success) showFeedback(newtFeedback, data.error || "Could not stop Newt.", "error");
     else                   showFeedback(newtFeedback, "Newt stopped. Your settings are saved for next time.", "success");
+    if (data && data.code === "docker_access") loadNewtDockerFix();
     loadNewtStatus();
   });
 });
@@ -738,6 +870,90 @@ document.getElementById("newt-logs-btn").addEventListener("click", function () {
     setPopupOutput(data.output && data.output.indexOf("No such container") === -1
       ? data.output
       : "No logs yet. Newt isn't running. Fill in the details above and click Enable.");
+  });
+});
+
+/* Updates: version, daily automatic update, manual update and roll back */
+function formatNewtCheckTime(unixSeconds) {
+  if (!unixSeconds) return "never";
+  var d = new Date(unixSeconds * 1000);
+  return d.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+}
+
+function renderNewtUpdates(data) {
+  var configured = data.state !== "not_configured";
+  var running    = data.container === "running";
+
+  newtAutoToggle.checked = data.auto_update !== false;
+  newtUpdateSummary.textContent = configured
+    ? "Last checked: " + formatNewtCheckTime(data.last_check) + (data.last_result ? ". " + data.last_result : "")
+    : "Set up Newt above first. Updates are checked once it is running.";
+
+  if (newtUpdateBusy) return;
+  newtCheckBtn.disabled    = !configured;
+  newtUpdateBtn.disabled   = !running;
+  newtRollbackBtn.disabled = !configured || !data.rollback_available;
+  newtUpdateBtn.classList.toggle("update-ready", !!data.update_available && running);
+}
+
+function setNewtUpdateBusy(busy, btn, label) {
+  newtUpdateBusy = busy;
+  [newtCheckBtn, newtUpdateBtn, newtRollbackBtn].forEach(function (b) { b.disabled = busy; });
+  if (busy) { btn.dataset.label = btn.textContent; btn.textContent = label; btn.classList.add("running"); }
+  else      { btn.textContent = btn.dataset.label || btn.textContent; btn.classList.remove("running"); }
+}
+
+// Runs one update action and shows its result. The tunnel may drop while
+// Newt restarts; if this page is open through Pangolin it may lose the reply,
+// but the backend finishes (and rolls back if needed) on its own.
+function runNewtUpdateAction(path, btn, busyLabel, waitingText) {
+  setNewtUpdateBusy(true, btn, busyLabel);
+  showFeedback(newtUpdateFeedback, waitingText, "");
+  llamaRequest("POST", path, null, 600000, function (err, data) {
+    setNewtUpdateBusy(false, btn);
+    if (err) {
+      showFeedback(newtUpdateFeedback, err + " If you opened this page through the tunnel, reload it in a minute.", "error");
+    } else if (data.code === "docker_access") {
+      showFeedback(newtUpdateFeedback, data.error, "error");
+      loadNewtDockerFix();
+    } else if (!data.success) {
+      showFeedback(newtUpdateFeedback, data.error || "Something went wrong.", "error");
+      if (data.output && data.code !== "rolled_back") showOutputPopup("Newt — Update", data.output);
+    } else {
+      showFeedback(newtUpdateFeedback, data.output, "success");
+    }
+    loadNewtStatus();
+  });
+}
+
+newtCheckBtn.addEventListener("click", function () {
+  runNewtUpdateAction("/api/newt/update/check", newtCheckBtn, "Checking...",
+    "Downloading the latest Newt image to compare. This can take a minute.");
+});
+
+newtUpdateBtn.addEventListener("click", function () {
+  if (!confirm("Update Newt now?\n\nNewt restarts, so the tunnel drops for a few seconds. " +
+               "If the new version doesn't reconnect within a minute, the previous version is put back automatically.")) return;
+  runNewtUpdateAction("/api/newt/update", newtUpdateBtn, "Updating...",
+    "Updating Newt and waiting for the tunnel to reconnect (up to a minute)...");
+});
+
+newtRollbackBtn.addEventListener("click", function () {
+  if (!confirm("Go back to the previous version of Newt?\n\nThe tunnel drops for a few seconds while Newt restarts.")) return;
+  runNewtUpdateAction("/api/newt/rollback", newtRollbackBtn, "Rolling back...", "Restarting Newt on the previous version...");
+});
+
+newtAutoToggle.addEventListener("change", function () {
+  var enabled = newtAutoToggle.checked;
+  newtAutoToggle.disabled = true;
+  llamaRequest("POST", "/api/newt/auto-update", { enabled: enabled }, 10000, function (err, data) {
+    newtAutoToggle.disabled = false;
+    if (err || !data.success) {
+      newtAutoToggle.checked = !enabled;
+      showFeedback(newtUpdateFeedback, err || data.error || "Could not change the setting.", "error");
+      return;
+    }
+    showFeedback(newtUpdateFeedback, data.output, "success");
   });
 });
 

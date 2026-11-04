@@ -16,8 +16,8 @@ Run these commands on the Xerxes Pi itself.
 **1. Get the code**
 
 ```bash
-git clone --recurse-submodules https://github.com/rapidanalysis/team-llama/tree/developG40
-cd XerxesAdminPanel
+git clone --recurse-submodules -b developG40 https://github.com/rapidanalysis/team-llama.git
+cd team-llama
 ```
 
 **2. Run the installer**
@@ -39,7 +39,7 @@ When it finishes, it prints the address of the panel:
 ```
 ==========================================
  Deployment complete
- Admin panel:  http:/<device-ip>:8000
+ Admin panel:  http://<device-ip>:8000
  ...
 ```
 

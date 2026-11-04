@@ -81,6 +81,32 @@ std::vector<std::string> installed_models() {
     return models;
 }
 
+ActionResult delete_model(const std::string& model_filename) {
+    std::lock_guard<std::mutex> guard(lock());
+
+    if (model_filename.empty() ||
+        model_filename.find("..") != std::string::npos ||
+        model_filename.find('/') != std::string::npos ||
+        fs::path(model_filename).extension() != ".gguf") {
+        return {false, "Invalid model filename"};
+    }
+
+    // We don't track which model llama-server has loaded, so refuse while
+    // it is running rather than risk pulling the file out from under it.
+    if (process().is_running()) {
+        return {false, "Turn Llama off before deleting a model"};
+    }
+
+    std::string model_path = kModelsDir + "/" + model_filename;
+    std::error_code ec;
+    if (!fs::remove(model_path, ec)) {
+        if (ec) return {false, "Failed to delete " + model_filename + ": " + ec.message()};
+        return {false, "Model not found: " + model_path};
+    }
+
+    return {true, ""};
+}
+
 ProxyResponse proxy(const std::string& path, const std::string& method, const std::string& body) {
     std::lock_guard<std::mutex> guard(lock());
     if (!process().is_running()) {

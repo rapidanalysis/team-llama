@@ -1012,6 +1012,7 @@ function setLlamaRunning(running) {
   llamaInstalledList.querySelectorAll(".model-row").forEach(function (row) {
     row.classList.toggle("disabled", running);
     row.querySelector("input").disabled = running;
+    row.querySelector(".model-delete").disabled = running;
   });
   showFeedback(llamaInstalledFeedback, running && llamaSelected ? "Turn Llama off to switch models." : "", "");
 }
@@ -1054,12 +1055,49 @@ function renderLlamaModels(models) {
     var span  = document.createElement("span");
     span.className   = "model-name";
     span.textContent = name;
+    var del = document.createElement("button");
+    del.type      = "button";
+    del.className = "model-delete";
+    del.title     = "Delete " + name;
+    del.setAttribute("aria-label", "Delete " + name);
+    del.innerHTML =
+      '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" ' +
+      'stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+      '<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>' +
+      '<path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>';
+    del.addEventListener("click", function (e) {
+      e.preventDefault();  // the row is a <label>; don't let the click select the radio
+      deleteLlamaModel(name, del);
+    });
     row.appendChild(radio);
     row.appendChild(span);
+    row.appendChild(del);
     llamaInstalledList.appendChild(row);
   });
 
   setLlamaRunning(llamaRunning);  // re-apply the locked state to the new rows
+}
+
+function deleteLlamaModel(name, btn) {
+  if (llamaRunning) {
+    showFeedback(llamaInstalledFeedback, "Turn Llama off before deleting a model.", "error");
+    return;
+  }
+  if (!confirm("Delete model \"" + name + "\"? You will need to download it again to use it.")) return;
+
+  btn.disabled = true;
+  showFeedback(llamaInstalledFeedback, "Deleting " + name + "...", "");
+
+  llamaRequest("POST", "/api/llama/delete", { model: name }, 15000, function (err, data) {
+    if (err || !data.success) {
+      showFeedback(llamaInstalledFeedback, err || data.error || "Failed to delete model.", "error");
+      btn.disabled = false;
+      return;
+    }
+    if (llamaSelected === name) llamaSelected = "";
+    showFeedback(llamaInstalledFeedback, "Deleted " + name + ".", "success");
+    loadLlamaModels();
+  });
 }
 
 llamaToggle.addEventListener("change", function () {

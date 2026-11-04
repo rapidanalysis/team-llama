@@ -416,6 +416,40 @@ void setup_routes(httplib::Server& svr) {
     });
 
     // ------------------------------------------------------------------
+    // POST /api/llama/delete
+    // Accepts { "model": "file.gguf" } and removes models/<model>.
+    // Refused while llama-server is running.
+    // Returns { "success": bool, "error": string }.
+    // ------------------------------------------------------------------
+    svr.Post("/api/llama/delete", [](const httplib::Request& req, httplib::Response& res) {
+        set_cors_headers(res);
+
+        try {
+            nlohmann::json body = nlohmann::json::parse(req.body);
+            std::string model = body.value("model", "");
+
+            if (model.empty()) {
+                nlohmann::json error = { {"success", false}, {"error", "missing \"model\" field"} };
+                res.status = 400;
+                res.set_content(error.dump(), "application/json");
+                return;
+            }
+
+            std::cout << "[Llama] delete model=" << model << "\n";
+
+            auto result = llama_manager::delete_model(model);
+            nlohmann::json response = { {"success", result.success}, {"error", result.error} };
+            res.status = result.success ? 200 : 400;
+            res.set_content(response.dump(), "application/json");
+
+        } catch (const std::exception& e) {
+            nlohmann::json error = { {"success", false}, {"error", "Invalid request body"} };
+            res.status = 400;
+            res.set_content(error.dump(), "application/json");
+        }
+    });
+
+    // ------------------------------------------------------------------
     // POST /api/llama/v1/chat/completions
     // Forwards the request body unchanged to llama-server's
     // OpenAI-compatible endpoint and relays its response.

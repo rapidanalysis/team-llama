@@ -321,6 +321,10 @@
             <span class="mini-card-label" data-i18n="newt_label_site">Newt ID</span>
             <span class="mini-card-value" id="newt-id-display">—</span>
           </div>
+          <div class="mini-card">
+            <span class="mini-card-label" data-i18n="newt_label_version">Version</span>
+            <span class="mini-card-value" id="newt-version-display">—</span>
+          </div>
         </div>
 
         <div class="input-row">
@@ -345,6 +349,38 @@
           <button class="cmd-btn newt-btn" id="newt-logs-btn"    data-i18n="ctrl_newt_logs">View Logs</button>
         </div>
         <div class="control-feedback" id="newt-feedback"></div>
+
+        <!-- Shown when the backend can't use Docker (D-01): what's wrong and how to fix it -->
+        <div class="newt-fix" id="newt-docker-fix" hidden>
+          <div class="newt-fix-header">
+            <span class="newt-fix-title" data-i18n="newt_fix_title">Newt needs Docker access</span>
+            <button class="secondary-btn" id="newt-fix-recheck" type="button" data-i18n="newt_fix_recheck">Check Again</button>
+          </div>
+          <p class="newt-fix-message" id="newt-fix-message"></p>
+          <p class="newt-fix-intro" data-i18n="newt_fix_intro">Pick one of these, run the commands in a terminal on this device, then click Check Again.</p>
+          <div id="newt-fix-options"></div>
+        </div>
+
+        <!-- Updates: the sponsor asked for Newt to keep itself up to date -->
+        <div class="newt-updates">
+          <div class="newt-updates-header">
+            <span class="newt-updates-title" data-i18n="newt_updates_title">Updates</span>
+            <div class="newt-auto">
+              <label class="toggle-switch">
+                <input type="checkbox" id="newt-auto-toggle" disabled />
+                <span class="toggle-slider"></span>
+              </label>
+              <label for="newt-auto-toggle" class="newt-auto-label" data-i18n="newt_auto_update">Update automatically (checks once a day)</label>
+            </div>
+          </div>
+          <p class="newt-update-summary" id="newt-update-summary">—</p>
+          <div class="btn-row">
+            <button class="cmd-btn newt-btn" id="newt-check-btn"    data-i18n="ctrl_newt_check_updates">Check for Updates</button>
+            <button class="cmd-btn newt-btn" id="newt-update-btn"   data-i18n="ctrl_newt_update_now">Update Now</button>
+            <button class="cmd-btn newt-btn" id="newt-rollback-btn" data-i18n="ctrl_newt_rollback">Roll Back</button>
+          </div>
+          <div class="control-feedback" id="newt-update-feedback"></div>
+        </div>
       </div>
     </section>
 

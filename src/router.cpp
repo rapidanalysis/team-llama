@@ -17,6 +17,20 @@ static void set_cors_headers(httplib::Response& res) {
     res.set_header("Access-Control-Allow-Headers", "Content-Type");
 }
 
+// Newt results share one JSON shape: { success, error, output, code, conflicts }
+static nlohmann::json newt_result_json(const newt_manager::Result& r) {
+    nlohmann::json conflicts = nlohmann::json::array();
+    for (const auto& c : r.conflicts)
+        conflicts.push_back({ {"kind", c.kind}, {"name", c.name}, {"detail", c.detail} });
+    return {
+        {"success",   r.success},
+        {"error",     r.error},
+        {"output",    r.output},
+        {"code",      r.code},
+        {"conflicts", conflicts}
+    };
+}
+
 void setup_routes(httplib::Server& svr) {
 
     // Serve static frontend files (index.html, styles.css, app.js)
@@ -315,9 +329,12 @@ void setup_routes(httplib::Server& svr) {
     // ------------------------------------------------------------------
     // POST /api/newt/enable
     // Accepts { "endpoint": "https://pangolin.example.com",
-    //           "newt_id": "...", "secret": "..." } and (re)starts the
-    // xerxes-newt container. An empty secret reuses the saved one.
-    // The secret is never logged or returned.
+    //           "newt_id": "...", "secret": "...", "force": false } and
+    // (re)starts the xerxes-newt container. An empty secret reuses the
+    // saved one. The secret is never logged or returned.
+    // If Docker can't be used, code is "docker_access" (see docker-check).
+    // If another Newt is running, code is "conflict" with a conflicts list;
+    // send again with "force": true once the user has confirmed.
     // ------------------------------------------------------------------
     svr.Post("/api/newt/enable", [](const httplib::Request& req, httplib::Response& res) {
         set_cors_headers(res);
@@ -327,18 +344,15 @@ void setup_routes(httplib::Server& svr) {
             std::string endpoint = body.value("endpoint", "");
             std::string newt_id  = body.value("newt_id",  "");
             std::string secret   = body.value("secret",   "");
+            bool force           = body.value("force",    false);
 
             std::cout << "[Newt] enable endpoint=" << endpoint << " id=" << newt_id
-                      << " secret=" << (secret.empty() ? "(saved)" : "(provided)") << "\n";
+                      << " secret=" << (secret.empty() ? "(saved)" : "(provided)")
+                      << (force ? " force" : "") << "\n";
 
-            auto result = newt_manager::enable(endpoint, newt_id, secret);
-            nlohmann::json response = {
-                {"success", result.success},
-                {"error",   result.error},
-                {"output",  result.output}
-            };
-            res.status = result.success ? 200 : 400;
-            res.set_content(response.dump(), "application/json");
+            auto result = newt_manager::enable(endpoint, newt_id, secret, force);
+            res.status = (result.success || result.code == "conflict") ? 200 : 400;
+            res.set_content(newt_result_json(result).dump(), "application/json");
 
         } catch (const std::exception& e) {
             nlohmann::json error = { {"success", false}, {"error", "Invalid request body"} };
@@ -356,33 +370,35 @@ void setup_routes(httplib::Server& svr) {
 
         std::cout << "[Newt] disable\n";
         auto result = newt_manager::disable();
-        nlohmann::json response = {
-            {"success", result.success},
-            {"error",   result.error},
-            {"output",  result.output}
-        };
         res.status = result.success ? 200 : 500;
-        res.set_content(response.dump(), "application/json");
+        res.set_content(newt_result_json(result).dump(), "application/json");
     });
 
     // ------------------------------------------------------------------
     // GET /api/newt/status
-    // Returns { "state", "container", "endpoint", "newt_id",
-    //           "has_secret", "detail" }. state is one of: connected,
-    // connecting, auth_failed, error, stopped, not_configured,
-    // docker_unavailable.
+    // Returns { "state", "container", "endpoint", "newt_id", "has_secret",
+    //           "detail", "version", "rollback_available", "auto_update",
+    //           "last_check", "last_result", "update_available" }.
+    // state is one of: connected, connecting, auth_failed, error, stopped,
+    // not_configured, docker_unavailable. last_check is Unix time (0 = never).
     // ------------------------------------------------------------------
     svr.Get("/api/newt/status", [](const httplib::Request&, httplib::Response& res) {
         set_cors_headers(res);
 
         auto s = newt_manager::status();
         nlohmann::json response = {
-            {"state",      s.state},
-            {"container",  s.container},
-            {"endpoint",   s.endpoint},
-            {"newt_id",    s.newt_id},
-            {"has_secret", s.has_secret},
-            {"detail",     s.detail}
+            {"state",              s.state},
+            {"container",          s.container},
+            {"endpoint",           s.endpoint},
+            {"newt_id",            s.newt_id},
+            {"has_secret",         s.has_secret},
+            {"detail",             s.detail},
+            {"version",            s.version},
+            {"rollback_available", s.rollback_available},
+            {"auto_update",        s.auto_update},
+            {"last_check",         s.last_check},
+            {"last_result",        s.last_result},
+            {"update_available",   s.update_available}
         };
         res.set_content(response.dump(), "application/json");
     });
@@ -396,6 +412,99 @@ void setup_routes(httplib::Server& svr) {
 
         nlohmann::json response = { {"output", newt_manager::logs(100)} };
         res.set_content(response.dump(), "application/json");
+    });
+
+    // ------------------------------------------------------------------
+    // GET /api/newt/docker-check
+    // Can the backend use Docker? Returns { "state", "message", "user",
+    // "detail", "fixes": [ { "title", "why", "commands": [], "after" } ] }.
+    // state: ok, permission_denied, sudo_denied, daemon_down,
+    // not_installed, error.
+    // ------------------------------------------------------------------
+    svr.Get("/api/newt/docker-check", [](const httplib::Request&, httplib::Response& res) {
+        set_cors_headers(res);
+
+        auto a = newt_manager::docker_check();
+        nlohmann::json fixes = nlohmann::json::array();
+        for (const auto& f : a.fixes)
+            fixes.push_back({ {"title", f.title}, {"why", f.why}, {"commands", f.commands}, {"after", f.after} });
+        nlohmann::json response = {
+            {"state",   a.state},
+            {"message", a.message},
+            {"user",    a.user},
+            {"detail",  a.detail},
+            {"fixes",   fixes}
+        };
+        res.set_content(response.dump(), "application/json");
+    });
+
+    // ------------------------------------------------------------------
+    // POST /api/newt/update/check
+    // Pulls fosrl/newt:latest and reports whether it is newer than the
+    // running container. Restarts nothing.
+    // ------------------------------------------------------------------
+    svr.Post("/api/newt/update/check", [](const httplib::Request&, httplib::Response& res) {
+        set_cors_headers(res);
+
+        std::cout << "[Newt] check for updates\n";
+        auto result = newt_manager::check_update();
+        res.status = result.success ? 200 : 400;
+        res.set_content(newt_result_json(result).dump(), "application/json");
+    });
+
+    // ------------------------------------------------------------------
+    // POST /api/newt/update
+    // Installs the latest image if it is newer. Rolls back by itself if
+    // the tunnel does not reconnect (code "rolled_back").
+    // ------------------------------------------------------------------
+    svr.Post("/api/newt/update", [](const httplib::Request&, httplib::Response& res) {
+        set_cors_headers(res);
+
+        std::cout << "[Newt] update now\n";
+        auto result = newt_manager::update(false);
+        std::cout << "[Newt] " << (result.success ? result.output : result.error) << "\n";
+        res.status = result.success ? 200 : 400;
+        res.set_content(newt_result_json(result).dump(), "application/json");
+    });
+
+    // ------------------------------------------------------------------
+    // POST /api/newt/rollback
+    // Restarts Newt on the image kept by the last update.
+    // ------------------------------------------------------------------
+    svr.Post("/api/newt/rollback", [](const httplib::Request&, httplib::Response& res) {
+        set_cors_headers(res);
+
+        std::cout << "[Newt] roll back\n";
+        auto result = newt_manager::rollback();
+        res.status = result.success ? 200 : 400;
+        res.set_content(newt_result_json(result).dump(), "application/json");
+    });
+
+    // ------------------------------------------------------------------
+    // POST /api/newt/auto-update
+    // Accepts { "enabled": true|false }. Turns the daily update on or off.
+    // ------------------------------------------------------------------
+    svr.Post("/api/newt/auto-update", [](const httplib::Request& req, httplib::Response& res) {
+        set_cors_headers(res);
+
+        try {
+            nlohmann::json body = nlohmann::json::parse(req.body);
+            if (!body.contains("enabled") || !body["enabled"].is_boolean()) {
+                nlohmann::json error = { {"success", false}, {"error", "\"enabled\" must be true or false"} };
+                res.status = 400;
+                res.set_content(error.dump(), "application/json");
+                return;
+            }
+            bool enabled = body["enabled"].get<bool>();
+            std::cout << "[Newt] automatic updates " << (enabled ? "on" : "off") << "\n";
+            auto result = newt_manager::set_auto_update(enabled);
+            res.set_content(newt_result_json(result).dump(), "application/json");
+
+        } catch (const std::exception& e) {
+            nlohmann::json error = { {"success", false}, {"error", "Invalid request body"} };
+            res.status = 400;
+            res.set_content(error.dump(), "application/json");
+        }
     });
 
     // ------------------------------------------------------------------

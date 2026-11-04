@@ -8,6 +8,7 @@ A web-based admin panel for the Xerxes Pi carrier board by Rapid Analysis PTY LT
 - An account that can use `sudo`
 - An internet connection for the first install
 - About 2 GB of free disk space, plus room for any AI models you download
+- Docker, only if you use the Newt tab (see [Remote access with Newt](#remote-access-with-newt-pangolin))
 
 ## Install
 
@@ -64,6 +65,20 @@ The AI model is off by default and uses no memory until you turn it on.
 Pick a model that fits the device's memory: roughly its file size plus a few hundred MB. On a 4 GB board, stick to models under about 2 GB. Turn Llama off when you're done to free the memory.
 
 Programs on your network can also use the model through an OpenAI-compatible API at `http://<device-ip>:8000/api/llama/v1/chat/completions`.
+
+## Remote access with Newt (Pangolin)
+
+The **Newt** tab connects the device to a Pangolin server, so it can be reached from outside your network without opening a port on your router.
+
+Newt runs in Docker, so install Docker on the device first. The installer does not install it. See https://docs.docker.com/engine/install/debian/.
+
+1. On your Pangolin server, add a site and copy its endpoint, site ID and secret.
+2. Open the **Newt** tab, enter the three values and click **Enable**.
+3. Click **View Logs** to check that it connected.
+
+The secret is saved in `/opt/xerxes/config/newt.env` (or `config/newt.env` when running by hand). Only the account running the panel can read it, and the panel doesn't show it again. **Disable** stops Newt and deletes the saved settings.
+
+Newt is checked for a new version once a day, and **Check for Updates** checks straight away. It only restarts when a new version was downloaded.
 
 ## Managing the service
 

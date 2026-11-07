@@ -118,3 +118,7 @@ You should see active (running) highlighted in green.
 
 - Local Network (LAN): http://<DEVICE_IP_ADDRESS>:8080 (e.g., http://192.168.1.50:8080)
 - Tailscale (Remote): http://<TAILSCALE_IP>:8080 (e.g., http://100.x.x.x:8080)
+
+
+
+

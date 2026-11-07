@@ -5,6 +5,7 @@
 #include "llama_manager.h"
 #include "newt_manager.h"
 #include "rfid_manager.h"
+#include "oled_manager.h"
 #include "json.hpp"
 #include <iostream>
 #include <cctype>
@@ -639,6 +640,81 @@ void setup_routes(httplib::Server& svr) {
             try { since = std::stoull(req.get_param_value("since")); } catch (const std::exception&) { since = 0; }
         }
         rfid_send(res, rfid_manager::events(since));
+    });
+
+    // ------------------------------------------------------------------
+    // OLED display (I2C tab), see include/oled_manager.h.
+    // Responses are { "success": bool, "code": "...", "error": "...", ... }.
+    // ------------------------------------------------------------------
+    auto oled_send = [](httplib::Response& res, const oled_manager::Reply& r) {
+        res.status = r.http_status;
+        res.set_content(r.body.dump(), "application/json");
+    };
+    auto oled_bad_body = [](httplib::Response& res) {
+        nlohmann::json error = { {"success", false}, {"code", "bad_request"}, {"error", "Invalid request body"} };
+        res.status = 400;
+        res.set_content(error.dump(), "application/json");
+    };
+
+    // GET /api/oled/status
+    svr.Get("/api/oled/status", [oled_send](const httplib::Request&, httplib::Response& res) {
+        set_cors_headers(res);
+        oled_send(res, oled_manager::status());
+    });
+
+    // POST /api/oled/power  { "enabled": true|false }
+    svr.Post("/api/oled/power", [oled_send, oled_bad_body](const httplib::Request& req, httplib::Response& res) {
+        set_cors_headers(res);
+        try {
+            nlohmann::json body = nlohmann::json::parse(req.body);
+            oled_send(res, oled_manager::set_enabled(body.at("enabled").get<bool>()));
+        } catch (const std::exception&) { oled_bad_body(res); }
+    });
+
+    // POST /api/oled/display  { "mode": "stats"|"qr", "stats": ["hostname", "ip", ...] }
+    svr.Post("/api/oled/display", [oled_send, oled_bad_body](const httplib::Request& req, httplib::Response& res) {
+        set_cors_headers(res);
+        try {
+            nlohmann::json body = nlohmann::json::parse(req.body);
+            std::string mode = body.at("mode").get<std::string>();
+            std::vector<std::string> stats = body.value("stats", std::vector<std::string>());
+            oled_send(res, oled_manager::update_display(mode, stats));
+        } catch (const std::exception&) { oled_bad_body(res); }
+    });
+
+    // POST /api/oled/settings  { "bus": 1, "address": "0x3C" }
+    // address may be a number or a hex string.
+    svr.Post("/api/oled/settings", [oled_send, oled_bad_body](const httplib::Request& req, httplib::Response& res) {
+        set_cors_headers(res);
+        try {
+            nlohmann::json body = nlohmann::json::parse(req.body);
+            auto as_int = [](const nlohmann::json& v) -> long {
+                if (v.is_number_integer()) return v.get<long>();
+                std::string s = v.get<std::string>();
+                char* end = nullptr;
+                long n = std::strtol(s.c_str(), &end, 0);
+                if (s.empty() || *end != '\0') return -1;
+                return n;
+            };
+            long bus  = as_int(body.at("bus"));
+            long addr = as_int(body.at("address"));
+            oled_send(res, oled_manager::update_settings(static_cast<int>(bus), static_cast<int>(addr)));
+        } catch (const std::exception&) { oled_bad_body(res); }
+    });
+
+    // POST /api/oled/probe
+    svr.Post("/api/oled/probe", [oled_send](const httplib::Request&, httplib::Response& res) {
+        set_cors_headers(res);
+        oled_send(res, oled_manager::probe());
+    });
+
+    // GET /api/oled/preview?mode=stats&stats=ip,dns
+    // Without mode, previews the saved settings.
+    svr.Get("/api/oled/preview", [oled_send](const httplib::Request& req, httplib::Response& res) {
+        set_cors_headers(res);
+        std::string mode = req.has_param("mode") ? req.get_param_value("mode") : "";
+        std::string stats = req.has_param("stats") ? req.get_param_value("stats") : "";
+        oled_send(res, oled_manager::preview(mode, oled_manager::split_stats(stats)));
     });
 
     // ------------------------------------------------------------------

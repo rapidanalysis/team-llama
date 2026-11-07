@@ -518,7 +518,90 @@
       <!-- OLED Display -->
       <div class="i2c-device" id="i2c-oled">
         <h3 class="i2c-device-title" data-i18n="oled_title">OLED Display</h3>
-        <div class="placeholder-note" data-i18n="oled_placeholder">To be implemented</div>
+
+        <div class="control-card">
+          <div class="control-card-header">
+            <label class="toggle-switch">
+              <input type="checkbox" id="oled-power-toggle">
+              <span class="toggle-slider"></span>
+            </label>
+            <span class="control-card-title" data-i18n="oled_power_title">Show on Display</span>
+            <span class="service-badge" id="badge-oled">—</span>
+          </div>
+          <p class="control-card-desc" data-i18n="oled_power_desc"></p>
+
+          <div class="mini-card-row">
+            <div class="mini-card">
+              <span class="mini-card-label" data-i18n="oled_label_display">Display</span>
+              <span class="mini-card-value" id="oled-display-state">—</span>
+            </div>
+            <div class="mini-card">
+              <span class="mini-card-label" data-i18n="oled_label_bus">Bus / Address</span>
+              <span class="mini-card-value" id="oled-bus-display">—</span>
+            </div>
+            <div class="mini-card">
+              <span class="mini-card-label" data-i18n="oled_label_mode">Showing</span>
+              <span class="mini-card-value" id="oled-mode-display">—</span>
+            </div>
+          </div>
+          <div class="control-feedback" id="oled-power-feedback"></div>
+        </div>
+
+        <div class="control-card">
+          <div class="control-card-header">
+            <span class="control-card-title" data-i18n="oled_content_title">Screen Content</span>
+          </div>
+          <p class="control-card-desc" data-i18n="oled_content_desc"></p>
+
+          <div class="oled-content">
+            <div class="oled-options">
+              <span class="form-label" data-i18n="oled_mode_label">Mode</span>
+              <div class="oled-choice-list">
+                <label class="model-row"><input type="radio" name="oled-mode" value="stats" checked>
+                  <span data-i18n="oled_mode_stats">Device information</span></label>
+                <label class="model-row"><input type="radio" name="oled-mode" value="qr">
+                  <span data-i18n="oled_mode_qr">QR code to this admin panel</span></label>
+              </div>
+
+              <span class="form-label" data-i18n="oled_stats_label">Information to show</span>
+              <div class="oled-choice-list" id="oled-stat-list"></div>
+            </div>
+
+            <div class="oled-preview-wrap">
+              <span class="form-label" data-i18n="oled_preview_label">Preview</span>
+              <canvas class="oled-preview" id="oled-preview" width="128" height="64"></canvas>
+              <span class="oled-preview-note" id="oled-preview-note"></span>
+            </div>
+          </div>
+
+          <div class="btn-row oled-content-btns">
+            <button class="action-btn" id="oled-content-save" type="button" data-i18n="oled_content_save">Save</button>
+          </div>
+          <div class="control-feedback" id="oled-content-feedback"></div>
+        </div>
+
+        <div class="control-card">
+          <div class="control-card-header">
+            <span class="control-card-title" data-i18n="oled_settings_title">Display Settings</span>
+          </div>
+          <p class="control-card-desc" data-i18n="oled_settings_desc"></p>
+          <div class="form-row">
+            <div class="form-field">
+              <label class="form-label" for="oled-set-bus" data-i18n="oled_input_bus">I2C Bus</label>
+              <input class="text-input rfid-narrow" type="number" id="oled-set-bus" min="0" max="1023" placeholder="1" />
+            </div>
+            <div class="form-field">
+              <label class="form-label" for="oled-set-addr" data-i18n="oled_input_addr">Address</label>
+              <input class="text-input rfid-narrow" type="text" id="oled-set-addr" placeholder="0x3C" maxlength="6" spellcheck="false" />
+            </div>
+          </div>
+          <div class="btn-row rfid-settings-btns">
+            <button class="action-btn" id="oled-settings-save" type="button" data-i18n="oled_settings_save">Save</button>
+            <button class="secondary-btn" id="oled-probe-btn" type="button" data-i18n="oled_probe_btn">Test Connection</button>
+            <button class="secondary-btn" id="oled-settings-defaults" type="button" data-i18n="oled_settings_defaults">Defaults</button>
+          </div>
+          <div class="control-feedback" id="oled-settings-feedback"></div>
+        </div>
       </div>
 
       <!-- RFID Reader -->

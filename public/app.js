@@ -4,12 +4,24 @@
             output popup, system commands, network info & config,
             hostname rename, Tailscale dashboard, ngrok dashboard,
             service badges, reboot/shutdown, Llama (local LLM),
-            I2C (PiicoDev RFID reader).
+            I2C (OLED display, PiicoDev RFID reader).
    ============================================================ */
 
 var API_BASE = "";  // same origin — served by the C++ backend
 
 /* ── LOCALISATION ── */
+var LANG = {};  // lang.json, kept for text set from JS
+
+// t("oled_probe_ok", { device: "/dev/i2c-1" }) fills in {device}.
+// Falls back to the key so a missing string is easy to spot.
+function t(key, vars) {
+  var s = LANG[key] || key;
+  if (vars) {
+    Object.keys(vars).forEach(function (k) { s = s.split("{" + k + "}").join(vars[k]); });
+  }
+  return s;
+}
+
 function loadLang() {
   var xhr = new XMLHttpRequest();
   xhr.open("GET", "/lang.json", true);
@@ -17,6 +29,7 @@ function loadLang() {
     if (xhr.status === 200) {
       try {
         var strings = JSON.parse(xhr.responseText);
+        LANG = strings;
         document.querySelectorAll("[data-i18n]").forEach(function (el) {
           var key = el.getAttribute("data-i18n");
           if (strings[key]) el.textContent = strings[key];
@@ -91,7 +104,7 @@ navLinks.forEach(function (link) {
     if (target === "network") loadNetworkInfo();
     if (target === "tunnels") loadTailscaleDetails();
     if (target === "llama")   { loadLlamaStatus(); loadLlamaModels(); }
-    if (target === "i2c") rfidOnShow(); else rfidOnHide();
+    if (target === "i2c") { rfidOnShow(); oledOnShow(); } else { rfidOnHide(); oledOnHide(); }
   });
 });
 
@@ -1915,6 +1928,256 @@ window.addEventListener("pagehide", function () {
   if (rfidLive && navigator.sendBeacon) navigator.sendBeacon(API_BASE + "/api/rfid/live/stop");
   if (rfidScanTimer && navigator.sendBeacon) navigator.sendBeacon(API_BASE + "/api/rfid/scan/cancel");
 });
+
+/* ── I2C: OLED DISPLAY ──
+   What the OLED shows (see include/oled_manager.h). While the tab is open it
+   polls the display state and redraws the preview, so values like CPU
+   temperature stay current. */
+var oledPowerToggle     = document.getElementById("oled-power-toggle");
+var oledBadge           = document.getElementById("badge-oled");
+var oledDisplayState    = document.getElementById("oled-display-state");
+var oledBusDisplay      = document.getElementById("oled-bus-display");
+var oledModeDisplay     = document.getElementById("oled-mode-display");
+var oledPowerFeedback   = document.getElementById("oled-power-feedback");
+var oledModeRadios      = document.querySelectorAll('input[name="oled-mode"]');
+var oledStatList        = document.getElementById("oled-stat-list");
+var oledPreview         = document.getElementById("oled-preview");
+var oledPreviewNote     = document.getElementById("oled-preview-note");
+var oledContentSave     = document.getElementById("oled-content-save");
+var oledContentFeedback = document.getElementById("oled-content-feedback");
+var oledSetBus          = document.getElementById("oled-set-bus");
+var oledSetAddr         = document.getElementById("oled-set-addr");
+var oledSetFeedback     = document.getElementById("oled-settings-feedback");
+
+var OLED_POLL_MS = 3000;
+
+var oledVisible    = false;
+var oledPollTimer  = null;
+var oledSaved      = null;  // last /api/oled/status reply
+var oledPreviewSeq = 0;     // drops preview replies that arrive out of order
+
+// Message for an error code from the backend, with the code itself (FR-6)
+function oledErrorText(code) {
+  var vars = { device: oledSaved ? oledSaved.device : "", address: oledSaved ? oledSaved.address : "" };
+  var key  = "oled_err_" + code;
+  var msg  = code && LANG[key] ? t(key, vars) : t("oled_err_unknown");
+  return code ? msg + " " + t("oled_err_code", { code: code }) : msg;
+}
+
+function setOledBadge(text, cls) {
+  oledBadge.textContent = text;
+  oledBadge.className   = "service-badge " + cls;
+}
+
+function oledFormMode() {
+  var checked = document.querySelector('input[name="oled-mode"]:checked');
+  return checked ? checked.value : "stats";
+}
+
+function oledFormStats() {
+  return Array.prototype.map.call(oledStatList.querySelectorAll("input:checked"), function (box) {
+    return box.value;
+  });
+}
+
+function oledUnsaved() {
+  return !!oledSaved && (oledFormMode() !== oledSaved.mode ||
+                         oledFormStats().join(",") !== oledSaved.stats.join(","));
+}
+
+function renderOledStatus(s) {
+  oledSaved = s;
+  oledPowerToggle.checked  = !!s.enabled;
+  oledPowerToggle.disabled = false;
+
+  var d = s.display || {};
+  var state = d.state || "idle";
+  oledDisplayState.textContent = t("oled_state_" + state);
+  oledDisplayState.className   = "mini-card-value" + (state === "ok" ? " rfid-ok" : state === "error" ? " rfid-bad" : "");
+  oledDisplayState.title       = state === "idle" ? t("oled_state_idle_hint") : (d.error || "");
+  oledBusDisplay.textContent   = s.device + " · " + s.address;
+  oledModeDisplay.textContent  = !s.enabled ? t("oled_badge_off")
+                               : t(s.mode === "qr" ? "oled_showing_qr" : "oled_showing_stats");
+
+  if (s.enabled && state === "error") setOledBadge(t("oled_badge_error"), "badge-failed");
+  else if (s.enabled)                 setOledBadge(t("oled_badge_on"), "badge-active");
+  else                                setOledBadge(t("oled_badge_off"), "badge-inactive");
+
+  if (state === "error") {
+    showFeedback(oledPowerFeedback, oledErrorText(d.code), "error");
+  } else if (oledPowerFeedback.classList.contains("error")) {
+    showFeedback(oledPowerFeedback, "", "");
+  }
+  updateOledPreviewNote();
+}
+
+function renderOledStatList(available, selected) {
+  oledStatList.innerHTML = "";
+  available.forEach(function (key) {
+    var row = document.createElement("label");
+    row.className = "model-row";
+    var box = document.createElement("input");
+    box.type    = "checkbox";
+    box.value   = key;
+    box.checked = selected.indexOf(key) >= 0;
+    box.addEventListener("change", oledFormChanged);
+    var name = document.createElement("span");
+    name.textContent = t("oled_stat_" + key);
+    row.appendChild(box);
+    row.appendChild(name);
+    oledStatList.appendChild(row);
+  });
+}
+
+function fillOledForm(s) {
+  oledModeRadios.forEach(function (r) { r.checked = r.value === s.mode; });
+  renderOledStatList(s.available_stats || [], s.stats || []);
+  oledSetBus.value  = s.bus;
+  oledSetAddr.value = s.address;
+  oledFormChanged();
+}
+
+// Stats only apply in stats mode, so grey them out for the QR code
+function oledFormChanged() {
+  var qr = oledFormMode() === "qr";
+  oledStatList.querySelectorAll(".model-row").forEach(function (row) {
+    row.classList.toggle("disabled", qr);
+    row.querySelector("input").disabled = qr;
+  });
+  showFeedback(oledContentFeedback, "", "");
+  loadOledPreview();
+}
+
+function updateOledPreviewNote() {
+  if (oledUnsaved()) {
+    oledPreviewNote.textContent = t("oled_preview_unsaved");
+  } else if (oledFormMode() === "qr" && oledSaved && oledSaved.panel_url) {
+    oledPreviewNote.textContent = t("oled_preview_qr_note", { url: oledSaved.panel_url });
+  } else {
+    oledPreviewNote.textContent = "";
+  }
+}
+
+// The preview shows the form, not the saved settings, so changes can be seen before saving
+function loadOledPreview() {
+  var path = "/api/oled/preview?mode=" + encodeURIComponent(oledFormMode()) +
+             "&stats=" + encodeURIComponent(oledFormStats().join(","));
+  var seq = ++oledPreviewSeq;
+  llamaRequest("GET", path, null, 5000, function (err, data) {
+    if (seq !== oledPreviewSeq || err || !data.success) return;
+    drawOledPreview(data);
+  });
+  updateOledPreviewNote();
+}
+
+// Each row is hex, the top bit of each byte is the leftmost of its 8 pixels
+function drawOledPreview(p) {
+  var ctx = oledPreview.getContext("2d");
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, p.width, p.height);
+  ctx.fillStyle = "#fff";
+  p.rows.forEach(function (hex, y) {
+    for (var i = 0; i < hex.length; i += 2) {
+      var byte = parseInt(hex.substr(i, 2), 16);
+      for (var bit = 0; bit < 8; bit++) {
+        if (byte & (0x80 >> bit)) ctx.fillRect(i * 4 + bit, y, 1, 1);
+      }
+    }
+  });
+}
+
+function loadOledStatus(fillForm) {
+  llamaRequest("GET", "/api/oled/status", null, 5000, function (err, data) {
+    if (err) { setOledBadge(t("oled_badge_unknown"), "badge-neutral"); return; }
+    renderOledStatus(data);
+    if (fillForm) fillOledForm(data);
+    else loadOledPreview();
+  });
+}
+
+function oledPoll() {
+  clearTimeout(oledPollTimer);
+  if (!oledVisible) return;
+  loadOledStatus(false);
+  oledPollTimer = setTimeout(oledPoll, OLED_POLL_MS);
+}
+
+oledPowerToggle.addEventListener("change", function () {
+  var enable = oledPowerToggle.checked;
+  oledPowerToggle.disabled = true;
+  llamaRequest("POST", "/api/oled/power", { enabled: enable }, 8000, function (err, data) {
+    oledPowerToggle.disabled = false;
+    if (err || !data.success) {
+      showFeedback(oledPowerFeedback, err ? t("oled_err_backend") : oledErrorText(data.code), "error");
+    }
+    loadOledStatus(false);
+  });
+});
+
+oledModeRadios.forEach(function (r) { r.addEventListener("change", oledFormChanged); });
+
+oledContentSave.addEventListener("click", function () {
+  var mode = oledFormMode(), stats = oledFormStats();
+  if (mode === "stats" && !stats.length) {
+    showFeedback(oledContentFeedback, t("oled_err_no_stats"), "error");
+    return;
+  }
+  oledContentSave.disabled = true;
+  showFeedback(oledContentFeedback, t("oled_saving"), "");
+  llamaRequest("POST", "/api/oled/display", { mode: mode, stats: stats }, 8000, function (err, data) {
+    oledContentSave.disabled = false;
+    if (err) { showFeedback(oledContentFeedback, t("oled_err_backend"), "error"); return; }
+    if (!data.success) { showFeedback(oledContentFeedback, oledErrorText(data.code), "error"); return; }
+    var offline = oledSaved && oledSaved.display && oledSaved.display.state === "error";
+    showFeedback(oledContentFeedback, t(offline ? "oled_content_saved_offline" : "oled_content_saved"), "success");
+    loadOledStatus(false);
+  });
+});
+
+document.getElementById("oled-settings-save").addEventListener("click", function () {
+  var body = { bus: oledSetBus.value.trim(), address: oledSetAddr.value.trim() };
+  showFeedback(oledSetFeedback, t("oled_saving"), "");
+  llamaRequest("POST", "/api/oled/settings", body, 8000, function (err, data) {
+    if (err) { showFeedback(oledSetFeedback, t("oled_err_backend"), "error"); return; }
+    if (!data.success) { showFeedback(oledSetFeedback, oledErrorText(data.code), "error"); return; }
+    showFeedback(oledSetFeedback, t("oled_settings_saved"), "success");
+    loadOledStatus(false);
+  });
+});
+
+document.getElementById("oled-probe-btn").addEventListener("click", function () {
+  var btn = this;
+  btn.disabled = true;
+  showFeedback(oledSetFeedback, t("oled_probe_testing"), "");
+  llamaRequest("POST", "/api/oled/probe", null, 10000, function (err, data) {
+    btn.disabled = false;
+    if (err) { showFeedback(oledSetFeedback, t("oled_err_backend"), "error"); return; }
+    if (!data.success) {
+      showFeedback(oledSetFeedback, oledErrorText(data.code), "error");
+    } else {
+      showFeedback(oledSetFeedback, t("oled_probe_ok", { device: data.device, address: data.address }), "success");
+    }
+    loadOledStatus(false);
+  });
+});
+
+document.getElementById("oled-settings-defaults").addEventListener("click", function () {
+  oledSetBus.value  = oledSaved ? oledSaved.default_bus : 1;
+  oledSetAddr.value = oledSaved ? oledSaved.default_address : "0x3C";
+  showFeedback(oledSetFeedback, "", "");
+});
+
+function oledOnShow() {
+  if (oledVisible) return;
+  oledVisible = true;
+  loadOledStatus(true);
+  oledPollTimer = setTimeout(oledPoll, OLED_POLL_MS);
+}
+
+function oledOnHide() {
+  oledVisible = false;
+  clearTimeout(oledPollTimer);
+}
 
 /* ── INIT ── */
 loadLang();

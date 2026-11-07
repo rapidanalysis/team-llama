@@ -3,6 +3,7 @@
 #include "router.h"
 #include "system_ops.h"
 #include "rfid_manager.h"
+#include "oled_manager.h"
 
 #define PORT 8000
 
@@ -12,6 +13,9 @@ int main() {
 
     // RFID reader (I2C tab)
     rfid_manager::initialize();
+
+    // OLED display (I2C tab). Needs the port for the QR code to the panel.
+    oled_manager::initialize(PORT);
 
     httplib::Server svr;
 

@@ -82,6 +82,7 @@ $RECYCLE.BIN/
 # Build output
 build/
 xerxes_backend
+xerxes_oled
 
 # CMake (llama.cpp build)
 CMakeFiles/

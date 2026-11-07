@@ -887,7 +887,6 @@ body {
   padding-bottom: 8px;
   border-bottom: 1px solid var(--border);
 }
-#i2c-oled .placeholder-note { background: var(--bg-card); font-size: 13px; }
 #i2c .control-card-header { gap: 12px; }
 #i2c .control-card-header .service-badge,
 #i2c .control-card-header .clear-btn { margin-left: auto; }
@@ -996,6 +995,46 @@ body {
   color: var(--text-secondary);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* OLED: options on the left, a 2x preview of the 128x64 screen on the right */
+.oled-content {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+.oled-options { flex: 1; min-width: 0; }
+.oled-choice-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 6px 0 14px;
+}
+.oled-preview-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: none;
+}
+.oled-preview {
+  width: 256px;
+  height: 128px;
+  background: #000;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  image-rendering: pixelated;
+}
+.oled-preview-note {
+  font-size: 12px;
+  color: var(--text-secondary);
+  max-width: 256px;
+  overflow-wrap: anywhere;
+}
+.oled-content-btns { margin-top: 4px; margin-bottom: 8px; }
+
+@media (max-width: 640px) {
+  .oled-content { flex-direction: column; }
+  .oled-preview { width: 100%; max-width: 256px; height: auto; aspect-ratio: 2 / 1; }
 }
 
 .rfid-narrow { width: 110px; flex: none; }

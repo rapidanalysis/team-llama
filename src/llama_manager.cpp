@@ -19,6 +19,18 @@ LlamaProcess& process() {
     return instance;
 }
 
+// Filename of the model llama-server was started with (empty when stopped)
+std::string& current_model() {
+    static std::string name;
+    return name;
+}
+
+bool is_valid_model_filename(const std::string& name) {
+    return !name.empty() &&
+           name.find("..") == std::string::npos &&
+           name.find('/') == std::string::npos;
+}
+
 std::mutex& lock() {
     static std::mutex m;
     return m;
@@ -31,8 +43,7 @@ namespace llama_manager {
 ActionResult enable(const std::string& model_filename) {
     std::lock_guard<std::mutex> guard(lock());
 
-    if (model_filename.find("..") != std::string::npos ||
-        model_filename.find('/') != std::string::npos) {
+    if (!is_valid_model_filename(model_filename)) {
         return {false, "Invalid model filename"};
     }
 
@@ -49,19 +60,22 @@ ActionResult enable(const std::string& model_filename) {
         return {false, "Failed to start llama-server"};
     }
 
+    current_model() = model_filename;
     return {true, ""};
 }
 
 ActionResult disable() {
     std::lock_guard<std::mutex> guard(lock());
     process().stop();
+    current_model().clear();
     return {true, ""};
 }
 
 StatusResult status() {
     std::lock_guard<std::mutex> guard(lock());
     bool running = process().is_running();
-    return {running, running ? static_cast<int>(process().pid()) : -1};
+    if (!running) current_model().clear();
+    return {running, running ? static_cast<int>(process().pid()) : -1, current_model()};
 }
 
 ActionResult download(const std::string& source_url) {
@@ -79,6 +93,29 @@ std::vector<std::string> installed_models() {
         }
     }
     return models;
+}
+
+ActionResult delete_model(const std::string& model_filename) {
+    std::lock_guard<std::mutex> guard(lock());
+
+    if (!is_valid_model_filename(model_filename) ||
+        fs::path(model_filename).extension() != ".gguf") {
+        return {false, "Invalid model filename"};
+    }
+
+    if (process().is_running() && current_model() == model_filename) {
+        return {false, "This model is in use. Turn Llama off before deleting it."};
+    }
+
+    std::string model_path = kModelsDir + "/" + model_filename;
+    std::error_code ec;
+    if (!fs::is_regular_file(model_path, ec)) {
+        return {false, "Model not found: " + model_filename};
+    }
+    if (!fs::remove(model_path, ec) || ec) {
+        return {false, "Could not delete " + model_filename + (ec ? ": " + ec.message() : "")};
+    }
+    return {true, ""};
 }
 
 ProxyResponse proxy(const std::string& path, const std::string& method, const std::string& body) {

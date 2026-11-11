@@ -313,6 +313,12 @@
   "llama_still_downloading": "Sigue descargando después de una hora. El dispositivo continúa en segundo plano — revisa Modelos instalados más tarde.",
   "llama_download_failed": "La descarga ha fallado.",
   "llama_downloaded": "Descargado {file}.",
+  "llama_delete_btn": "Eliminar modelo",
+  "llama_delete_in_use": "Apaga Llama para eliminar el modelo que está usando.",
+  "llama_delete_confirm": "¿Eliminar {model} de este dispositivo? Tendrás que descargarlo de nuevo para usarlo.",
+  "llama_deleting": "Eliminando {model}...",
+  "llama_deleted": "{model} eliminado.",
+  "llama_delete_failed": "No se pudo eliminar el modelo.",
 
   "chat_launcher": "Pregunta a Xerxes AI",
   "chat_title": "Asistente Xerxes",

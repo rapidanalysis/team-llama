@@ -6,10 +6,7 @@
       "size": "491 MB",
       "note": {
         "en": "Small and quick to load. A good first model for short questions and simple chat.",
-        "es": "Pequeño y rápido de cargar. Un buen primer modelo para preguntas cortas y conversaciones sencillas.",
-        "fr": "Petit et rapide à charger. Un bon premier modèle pour des questions courtes et des échanges simples.",
-        "de": "Klein und schnell geladen. Ein gutes erstes Modell für kurze Fragen und einfache Unterhaltungen.",
-        "zh-CN": "体积小，加载快。适合作为第一个模型，用于简短提问和简单对话。"
+        "es": "Pequeño y rápido de cargar. Un buen primer modelo para preguntas cortas y conversaciones sencillas."
       }
     }
   ]

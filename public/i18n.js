@@ -29,10 +29,7 @@ var I18N = (function () {
   // Names are shown in their own language so anyone can find theirs.
   var LANGUAGES = [
     { code: "en",    name: "English" },
-    { code: "es",    name: "Español" },
-    { code: "fr",    name: "Français" },
-    { code: "de",    name: "Deutsch" },
-    { code: "zh-CN", name: "简体中文" }
+    { code: "es",    name: "Español" }
   ];
   var DEFAULT_LANG = "en";
   var STORAGE_KEY  = "xerxes-lang";
@@ -64,7 +61,6 @@ var I18N = (function () {
       var p = String(prefs[i] || "");
       if (isSupported(p)) return p;
       var base = p.split("-")[0].toLowerCase();
-      if (base === "zh") return "zh-CN";
       if (isSupported(base)) return base;
     }
     return DEFAULT_LANG;

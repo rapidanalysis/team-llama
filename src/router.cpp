@@ -559,13 +559,14 @@ void setup_routes(httplib::Server& svr) {
 
     // ------------------------------------------------------------------
     // GET /api/llama/status
-    // Returns { "running": bool, "pid": int } (pid is -1 when stopped).
+    // Returns { "running": bool, "pid": int, "model": string }
+    // (pid is -1 and model is "" when stopped).
     // ------------------------------------------------------------------
     svr.Get("/api/llama/status", [](const httplib::Request&, httplib::Response& res) {
         set_cors_headers(res);
 
         auto s = llama_manager::status();
-        nlohmann::json response = { {"running", s.running}, {"pid", s.pid} };
+        nlohmann::json response = { {"running", s.running}, {"pid", s.pid}, {"model", s.model} };
         res.set_content(response.dump(), "application/json");
     });
 
@@ -612,6 +613,40 @@ void setup_routes(httplib::Server& svr) {
 
         nlohmann::json response = llama_manager::installed_models();
         res.set_content(response.dump(), "application/json");
+    });
+
+    // ------------------------------------------------------------------
+    // POST /api/llama/delete
+    // Accepts { "model": "file.gguf" } and removes models/<model>.
+    // Refuses to delete the model llama-server currently has loaded.
+    // Returns { "success": bool, "error": string }.
+    // ------------------------------------------------------------------
+    svr.Post("/api/llama/delete", [](const httplib::Request& req, httplib::Response& res) {
+        set_cors_headers(res);
+
+        try {
+            nlohmann::json body = nlohmann::json::parse(req.body);
+            std::string model = body.value("model", "");
+
+            if (model.empty()) {
+                nlohmann::json error = { {"success", false}, {"error", "missing \"model\" field"} };
+                res.status = 400;
+                res.set_content(error.dump(), "application/json");
+                return;
+            }
+
+            std::cout << "[Llama] delete model=" << model << "\n";
+
+            auto result = llama_manager::delete_model(model);
+            nlohmann::json response = { {"success", result.success}, {"error", result.error} };
+            res.status = result.success ? 200 : 500;
+            res.set_content(response.dump(), "application/json");
+
+        } catch (const std::exception& e) {
+            nlohmann::json error = { {"success", false}, {"error", "Invalid request body"} };
+            res.status = 400;
+            res.set_content(error.dump(), "application/json");
+        }
     });
 
     // ------------------------------------------------------------------

@@ -1288,6 +1288,8 @@ var llamaRecEmpty       = document.getElementById("llama-recommended-empty");
 var llamaRecFeedback    = document.getElementById("llama-recommended-feedback");
 
 var llamaRunning     = false;
+var llamaActiveModel = "";   // filename llama-server has loaded (from /api/llama/status)
+var llamaDeleting    = "";   // filename with a delete request in flight
 var llamaSelected    = "";   // filename of the model chosen in Installed models
 var llamaDownloading = "";   // filename being downloaded — hidden from the list until complete
 var llamaInstalled   = [];   // filenames from the last /api/llama/models response
@@ -1319,8 +1321,10 @@ function setLlamaBadge(key, cls) {
   llamaBadge.className = "service-badge " + cls;
 }
 
-function setLlamaRunning(running) {
+function setLlamaRunning(running, model) {
   llamaRunning        = running;
+  if (model !== undefined) llamaActiveModel = running ? model : "";
+  else if (!running)       llamaActiveModel = "";
   llamaToggle.checked = running;
   llamaToggle.disabled = false;
   setLlamaBadge(running ? "badge_running" : "badge_stopped", running ? "badge-active" : "badge-inactive");
@@ -1330,13 +1334,14 @@ function setLlamaRunning(running) {
     row.classList.toggle("disabled", running);
     row.querySelector("input").disabled = running;
   });
+  refreshLlamaDeleteBtns();
   showFeedback(llamaInstalledFeedback, running && llamaSelected ? msg("llama_switch_off_to_change") : "", "");
 }
 
 function loadLlamaStatus(cb) {
   llamaRequest("GET", "/api/llama/status", null, 5000, function (err, data) {
     if (err) { setLlamaBadge("badge_unknown", "badge-neutral"); }
-    else     { setLlamaRunning(!!data.running); }
+    else     { setLlamaRunning(!!data.running, data.model || ""); }
     if (cb) cb(err ? null : !!data.running);
   });
 }
@@ -1469,12 +1474,59 @@ function renderLlamaModels(models) {
     var span  = document.createElement("span");
     span.className   = "model-name";
     span.textContent = name;
+    var del = document.createElement("button");
+    del.type      = "button";
+    del.className = "remove-btn model-delete-btn";
+    del.innerHTML = "&times;";
+    del.addEventListener("click", function (e) {
+      e.preventDefault();      // the row is a <label>; don't select the radio
+      e.stopPropagation();
+      deleteLlamaModel(name);
+    });
     row.appendChild(radio);
     row.appendChild(span);
+    row.appendChild(del);
     llamaInstalledList.appendChild(row);
   });
 
   setLlamaRunning(llamaRunning);  // re-apply the locked state to the new rows
+}
+
+// The loaded model can't be deleted; if the backend didn't say which one is
+// loaded (older build), lock every delete button while Llama is running.
+function refreshLlamaDeleteBtns() {
+  llamaInstalledList.querySelectorAll(".model-row").forEach(function (row) {
+    var btn  = row.querySelector(".model-delete-btn");
+    var name = row.querySelector("input").value;
+    var inUse = llamaRunning && (!llamaActiveModel || llamaActiveModel === name);
+    btn.disabled = inUse || !!llamaDeleting;
+    var key = inUse ? "llama_delete_in_use" : "llama_delete_btn";
+    btn.setAttribute("data-i18n-title", key);
+    btn.setAttribute("data-i18n-aria-label", key);
+    btn.title = t(key);
+    btn.setAttribute("aria-label", t(key));
+  });
+}
+
+function deleteLlamaModel(name) {
+  if (llamaDeleting) return;
+  if (!confirm(t("llama_delete_confirm", { model: name }))) return;
+
+  llamaDeleting = name;
+  refreshLlamaDeleteBtns();
+  showFeedback(llamaInstalledFeedback, msg("llama_deleting", { model: name }), "");
+
+  llamaRequest("POST", "/api/llama/delete", { model: name }, 15000, function (err, data) {
+    llamaDeleting = "";
+    if (err || !data.success) {
+      showFeedback(llamaInstalledFeedback, err || data.error || msg("llama_delete_failed"), "error");
+      refreshLlamaDeleteBtns();
+      return;
+    }
+    if (llamaSelected === name) llamaSelected = "";
+    showFeedback(llamaInstalledFeedback, msg("llama_deleted", { model: name }), "success");
+    loadLlamaModels();   // also re-renders Recommended, so its Download button returns
+  });
 }
 
 llamaToggle.addEventListener("change", function () {
@@ -1499,7 +1551,7 @@ function startLlama() {
       loadLlamaStatus();
       return;
     }
-    setLlamaRunning(true);
+    setLlamaRunning(true, model);
     showFeedback(llamaEnableFeedback, msg("llama_loading", { model: model }), "success");
 
     // llama-server exits quickly if the model doesn't fit in memory or the

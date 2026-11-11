@@ -106,7 +106,7 @@ The **Recommended models** list on the Llama tab comes from `public/llama-models
   "name": "Qwen2.5 0.5B Instruct (Q4_K_M)",
   "url": "https://huggingface.co/<user>/<repo>/resolve/main/<file>.gguf",
   "size": "491 MB",
-  "note": { "en": "...", "es": "...", "fr": "...", "de": "...", "zh-CN": "..." }
+  "note": { "en": "...", "es": "..." }
 }
 ```
 
@@ -114,7 +114,7 @@ The **Recommended models** list on the Llama tab comes from `public/llama-models
 
 ### Languages (i18n)
 
-The panel's language is picked from the dropdown in the top bar (English, Español, Français, Deutsch, 简体中文). The choice is saved in the browser; first-time visitors get their browser's language if it is supported, otherwise English.
+The panel's language is picked from the dropdown in the top bar (English, Español). The choice is saved in the browser; first-time visitors get their browser's language if it is supported, otherwise English.
 
 - Strings live in `public/i18n/<code>.json`. `en.json` is the source of truth and the fallback for any missing key.
 - In HTML, tag text with `data-i18n="key"` (or `data-i18n-placeholder`, `-title`, `-aria-label`). In JS, use `I18N.setText(el, "key", {param: value})` or `msg("key", params)` with `showFeedback()`, so the text re-translates when the language changes. See the header of `public/i18n.js`.

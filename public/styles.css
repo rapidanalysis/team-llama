@@ -1393,3 +1393,14 @@ body {
 .newt-update-summary { font-size: 13px; color: var(--text-secondary); margin: 8px 0 12px; }
 #newt-update-btn.update-ready { border-color: var(--status-on); }
 .cmd-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* Delete button on each installed model row */
+.model-row .model-name { flex: 1; min-width: 0; }
+.model-row .model-delete-btn { margin-left: auto; }
+.model-row .model-delete-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text-secondary);
+}

@@ -313,6 +313,12 @@
   "llama_still_downloading": "Still downloading after an hour. The device keeps going in the background — check Installed models later.",
   "llama_download_failed": "Download failed.",
   "llama_downloaded": "Downloaded {file}.",
+  "llama_delete_btn": "Delete model",
+  "llama_delete_in_use": "Turn Llama off to delete the model it's using.",
+  "llama_delete_confirm": "Delete {model} from this device? You'll need to download it again to use it.",
+  "llama_deleting": "Deleting {model}...",
+  "llama_deleted": "Deleted {model}.",
+  "llama_delete_failed": "Could not delete the model.",
 
   "chat_launcher": "Ask Xerxes AI",
   "chat_title": "Xerxes Assistant",

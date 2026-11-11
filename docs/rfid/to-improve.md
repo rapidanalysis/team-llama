@@ -13,16 +13,8 @@ RFID integration is now part of the admin panel: it is written in C++, compiled 
 - The **I2C** tab has the same functionality as `tag-management.py` (list, add, edit, delete, live scan), plus reader settings and a connection test.
 
 **Future improvements now done**
-- **Run automatically:** the reader runs inside the admin panel's `xerxes` service, which starts on boot and restarts if it crashes. Run mode is remembered across restarts.
-- **Reload tags without a restart:** `tags.json` is read on every tap, so changes apply straight away.
 - **Logging:** each scan, the command run, its output and exit code are shown in **Reader Output** on the web page and written to the panel's log.
 - **Safer tag file:** `tags.json` is written to a temporary file and then renamed, so a crash can't leave it half-written, and a damaged file is never overwritten.
-
-
-## Not yet completed
-- **Hardware testing of the merged version.** The automated tests use a simulated module. Repeat the original hardware tests (Mifare Classic and NTAG tags, add/edit/delete, live scan, run mode across a reboot) on a Xerxes Pi with the deployed panel, and record the results.
-- **Login for the panel (NFR-13).** Tag commands run as root, and anyone who can reach the panel can register one. Until the panel has authentication, keep it on a trusted network.
-
 
 ## Known Issues
 - Ethernet on the Xerxes Pi board is very flaky, it is recommended to use Wi-Fi wherever possible.

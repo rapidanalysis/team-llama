@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Xerxes Pi — Admin Panel</title>
-  <link rel="stylesheet" href="styles.css?v=7" />
+  <link rel="stylesheet" href="styles.css?v=9" />
 </head>
 <body>
 
@@ -29,13 +29,21 @@
     </nav>
 
     <div class="navbar-actions">
-      <button class="console-btn" id="console-open-btn" title="Open command output console">&gt;_</button>
+      <label class="lang-picker" title="Language" data-i18n-title="lang_label">
+        <svg class="lang-picker-icon" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="10"/><path d="M2 12h20"/>
+          <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/>
+        </svg>
+        <select id="lang-select" class="lang-select" aria-label="Language" data-i18n-aria-label="lang_label"></select>
+      </label>
+      <button class="console-btn" id="console-open-btn" title="Open command output console" data-i18n-title="console_btn_title">&gt;_</button>
       <div class="status-pill" id="status-pill">
         <span class="status-dot" id="status-dot"></span>
         <span id="status-label" data-i18n="status_checking">Checking...</span>
       </div>
-      <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme">
-        <span id="theme-label">Dark</span>
+      <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme" data-i18n-aria-label="theme_toggle_aria">
+        <span id="theme-label" data-i18n="toggle_dark">Dark</span>
       </button>
     </div>
   </header>
@@ -44,10 +52,10 @@
   <div id="output-popup" class="popup-overlay" hidden>
     <div class="popup-box">
       <div class="popup-header">
-        <span id="popup-title">Output</span>
-        <button id="popup-close" class="popup-close-btn" aria-label="Close">&#x2715;</button>
+        <span id="popup-title" data-i18n="output_title">Output</span>
+        <button id="popup-close" class="popup-close-btn" aria-label="Close" data-i18n-aria-label="common_close">&#x2715;</button>
       </div>
-      <pre class="popup-body" id="popup-body">Running...</pre>
+      <pre class="popup-body" id="popup-body" data-i18n="common_running">Running...</pre>
     </div>
   </div>
 
@@ -102,9 +110,9 @@
       <div class="output-panel">
         <div class="output-header">
           <span data-i18n="output_title">Output</span>
-          <button class="clear-btn" id="clear-output">Clear</button>
+          <button class="clear-btn" id="clear-output" data-i18n="common_clear">Clear</button>
         </div>
-        <pre class="output-body" id="output-body">Command output will appear here...</pre>
+        <pre class="output-body" id="output-body" data-i18n="output_placeholder">Command output will appear here...</pre>
       </div>
     </section>
 
@@ -116,19 +124,19 @@
       <!-- Live network info cards (populated on tab open) -->
       <div class="card-grid" id="net-info-grid">
         <div class="card">
-          <span class="card-label">Interface</span>
+          <span class="card-label" data-i18n="net_card_interface">Interface</span>
           <span class="card-value" id="net-iface-card">—</span>
         </div>
         <div class="card">
-          <span class="card-label">IP Address</span>
+          <span class="card-label" data-i18n="card_ip">IP Address</span>
           <span class="card-value" id="net-ip-card">—</span>
         </div>
         <div class="card">
-          <span class="card-label">Gateway</span>
+          <span class="card-label" data-i18n="net_card_gateway">Gateway</span>
           <span class="card-value" id="net-gateway-card">—</span>
         </div>
         <div class="card">
-          <span class="card-label">DNS</span>
+          <span class="card-label" data-i18n="net_card_dns">DNS</span>
           <span class="card-value" id="net-dns-card">—</span>
         </div>
       </div>
@@ -151,30 +159,30 @@
           <span class="control-card-title" data-i18n="ctrl_ipconfig_title">IP Configuration</span>
           <span class="service-badge badge-neutral" id="badge-ipconfig">dhcp</span>
         </div>
-        <p class="control-card-desc" data-i18n="ctrl_ipconfig_desc">
+        <p class="control-card-desc" data-i18n-html="ctrl_ipconfig_desc">
           Assign a static IP or revert to DHCP. Changes are written to <code>/etc/dhcpcd.conf</code> and take effect after a reboot.
         </p>
         <div class="input-row">
-          <label class="input-label">Interface</label>
+          <label class="input-label" for="net-iface-select" data-i18n="net_card_interface">Interface</label>
           <select class="select-input" id="net-iface-select">
-            <option value="">Loading...</option>
+            <option value="" data-i18n="common_loading">Loading...</option>
           </select>
-          <label class="input-label">Mode</label>
+          <label class="input-label" for="net-mode-select" data-i18n="net_label_mode">Mode</label>
           <select class="select-input" id="net-mode-select">
-            <option value="dhcp">DHCP</option>
-            <option value="static">Static</option>
+            <option value="dhcp" data-i18n="net_mode_dhcp">DHCP</option>
+            <option value="static" data-i18n="net_mode_static">Static</option>
           </select>
         </div>
         <div id="static-ip-fields" class="static-fields" hidden>
           <div class="input-row">
             <input class="text-input" type="text" id="net-static-ip"
-                   placeholder="IP with prefix — e.g. 192.168.1.100/24" spellcheck="false" />
+                   placeholder="IP with prefix — e.g. 192.168.1.100/24" data-i18n-placeholder="net_placeholder_ip" spellcheck="false" />
           </div>
           <div class="input-row">
             <input class="text-input" type="text" id="net-static-gateway"
-                   placeholder="Gateway — e.g. 192.168.1.1" spellcheck="false" />
+                   placeholder="Gateway — e.g. 192.168.1.1" data-i18n-placeholder="net_placeholder_gateway" spellcheck="false" />
             <input class="text-input" type="text" id="net-static-dns"
-                   placeholder="DNS — e.g. 8.8.8.8" spellcheck="false" />
+                   placeholder="DNS — e.g. 8.8.8.8" data-i18n-placeholder="net_placeholder_dns" spellcheck="false" />
           </div>
         </div>
         <div class="input-row">
@@ -194,10 +202,10 @@
         </p>
         <div class="input-row">
           <input class="text-input" type="text" id="hostname-input"
-                 placeholder="new-hostname" maxlength="63" spellcheck="false" />
+                 placeholder="new-hostname" data-i18n-placeholder="hostname_placeholder" maxlength="63" spellcheck="false" />
           <button class="action-btn" id="hostname-btn" data-i18n="ctrl_hostname_btn">Rename</button>
           <button class="secondary-btn" id="hostname-reset" data-i18n="ctrl_hostname_reset"
-                  title="Fill in current hostname">Reset</button>
+                  title="Fill in current hostname" data-i18n-title="hostname_reset_title">Reset</button>
         </div>
         <div class="control-feedback" id="hostname-feedback"></div>
       </div>
@@ -236,22 +244,22 @@
 
         <div class="mini-card-row">
           <div class="mini-card">
-            <span class="mini-card-label">Tailscale IP</span>
+            <span class="mini-card-label" data-i18n="ts_label_ip">Tailscale IP</span>
             <span class="mini-card-value" id="ts-ip">—</span>
           </div>
           <div class="mini-card">
-            <span class="mini-card-label">Node Name</span>
+            <span class="mini-card-label" data-i18n="ts_label_node">Node Name</span>
             <span class="mini-card-value" id="ts-node">—</span>
           </div>
           <div class="mini-card">
-            <span class="mini-card-label">Exit Node</span>
-            <span class="mini-card-value" id="ts-exit-node">none</span>
+            <span class="mini-card-label" data-i18n="ts_label_exit">Exit Node</span>
+            <span class="mini-card-value" id="ts-exit-node" data-i18n="ts_exit_none">none</span>
           </div>
         </div>
 
         <div class="input-row">
           <input class="text-input" type="text" id="ts-authkey"
-                 placeholder="Auth key — optional, for headless setup (tskey-auth-...)" spellcheck="false" />
+                 placeholder="Auth key — optional, for headless setup (tskey-auth-...)" data-i18n-placeholder="ts_authkey_placeholder" spellcheck="false" />
           <button class="action-btn" id="ts-enable-btn" data-i18n="ctrl_tailscale_up">Enable</button>
         </div>
         <div class="btn-row">
@@ -273,22 +281,22 @@
 
         <div class="mini-card-row">
           <div class="mini-card mini-card--wide">
-            <span class="mini-card-label">Tunnel URL</span>
+            <span class="mini-card-label" data-i18n="ngrok_label_url">Tunnel URL</span>
             <span class="mini-card-value" id="ngrok-url">—</span>
           </div>
           <div class="mini-card">
-            <span class="mini-card-label">Forwarding Port</span>
+            <span class="mini-card-label" data-i18n="ngrok_label_port">Forwarding Port</span>
             <span class="mini-card-value" id="ngrok-port-display">—</span>
           </div>
         </div>
 
         <div class="input-row">
-          <label class="input-label">Port</label>
+          <label class="input-label" for="ngrok-port-select" data-i18n="ngrok_label_port_select">Port</label>
           <select class="select-input" id="ngrok-port-select">
-            <option value="ngrok_start_8080">8080 — Admin Panel</option>
-            <option value="ngrok_start_80">80 — HTTP</option>
-            <option value="ngrok_start_3000">3000 — Dev server</option>
-            <option value="ngrok_start_5000">5000 — Flask / API</option>
+            <option value="ngrok_start_8080" data-i18n="ngrok_opt_8080">8080 — Admin Panel</option>
+            <option value="ngrok_start_80" data-i18n="ngrok_opt_80">80 — HTTP</option>
+            <option value="ngrok_start_3000" data-i18n="ngrok_opt_3000">3000 — Dev server</option>
+            <option value="ngrok_start_5000" data-i18n="ngrok_opt_5000">5000 — Flask / API</option>
           </select>
           <button class="action-btn" id="ngrok-start-btn" data-i18n="ctrl_ngrok_start">Start</button>
         </div>
@@ -335,12 +343,12 @@
         <div class="input-row">
           <label class="input-label" for="newt-id" data-i18n="newt_input_id">Newt ID</label>
           <input class="text-input" type="text" id="newt-id"
-                 placeholder="From your Pangolin Site" spellcheck="false" autocomplete="off" maxlength="64" />
+                 placeholder="From your Pangolin Site" data-i18n-placeholder="newt_id_placeholder" spellcheck="false" autocomplete="off" maxlength="64" />
         </div>
         <div class="input-row">
           <label class="input-label" for="newt-secret" data-i18n="newt_input_secret">Secret</label>
           <input class="text-input" type="password" id="newt-secret"
-                 placeholder="Newt secret" spellcheck="false" autocomplete="new-password" maxlength="128" />
+                 placeholder="Newt secret" data-i18n-placeholder="newt_secret_placeholder" spellcheck="false" autocomplete="new-password" maxlength="128" />
         </div>
         <div class="btn-row">
           <button class="action-btn" id="newt-enable-btn" data-i18n="ctrl_newt_enable">Enable</button>
@@ -411,7 +419,7 @@
         <p class="control-card-desc" data-i18n="docker_manage_desc">Enter a container name then choose an action. Logs shows the last 100 lines.</p>
         <div class="input-row">
           <input class="text-input" type="text" id="container-input"
-                 placeholder="container-name" spellcheck="false" maxlength="128" />
+                 placeholder="container-name" data-i18n-placeholder="docker_container_placeholder" spellcheck="false" maxlength="128" />
         </div>
         <div class="btn-row">
           <button class="cmd-btn docker-btn" data-docker-command="container_start"   data-needs-name="true" data-i18n="docker_btn_start">Start</button>
@@ -435,7 +443,7 @@
           <!-- Image / Name / Restart row -->
           <div class="form-row">
             <div class="form-field form-field--grow">
-              <label class="form-label" for="run-image" data-i18n="docker_run_image">Image <span class="required">*</span></label>
+              <label class="form-label" for="run-image"><span data-i18n="docker_run_image">Image</span> <span class="required">*</span></label>
               <input class="text-input" type="text" id="run-image"
                      placeholder="nginx:latest" spellcheck="false" maxlength="256" />
             </div>
@@ -447,7 +455,7 @@
             <div class="form-field">
               <label class="form-label" for="run-restart" data-i18n="docker_run_restart">Restart Policy</label>
               <select class="select-input" id="run-restart">
-                <option value="">none</option>
+                <option value="" data-i18n="docker_restart_none">none</option>
                 <option value="always">always</option>
                 <option value="unless-stopped">unless-stopped</option>
                 <option value="on-failure">on-failure</option>
@@ -459,7 +467,7 @@
           <div class="list-section">
             <div class="list-header">
               <span class="form-label" data-i18n="docker_run_ports">Port Mappings</span>
-              <button class="secondary-btn" id="add-port-btn" type="button">+ Add</button>
+              <button class="secondary-btn" id="add-port-btn" type="button" data-i18n="common_add">+ Add</button>
             </div>
             <div id="port-list"></div>
           </div>
@@ -468,7 +476,7 @@
           <div class="list-section">
             <div class="list-header">
               <span class="form-label" data-i18n="docker_run_volumes">Volume Mounts</span>
-              <button class="secondary-btn" id="add-volume-btn" type="button">+ Add</button>
+              <button class="secondary-btn" id="add-volume-btn" type="button" data-i18n="common_add">+ Add</button>
             </div>
             <div id="volume-list"></div>
           </div>
@@ -477,7 +485,7 @@
           <div class="list-section">
             <div class="list-header">
               <span class="form-label" data-i18n="docker_run_env">Environment Variables</span>
-              <button class="secondary-btn" id="add-env-btn" type="button">+ Add</button>
+              <button class="secondary-btn" id="add-env-btn" type="button" data-i18n="common_add">+ Add</button>
             </div>
             <div id="env-list"></div>
           </div>
@@ -494,9 +502,9 @@
       <div class="output-panel">
         <div class="output-header">
           <span data-i18n="docker_output_title">Docker Output</span>
-          <button class="clear-btn" id="clear-docker-output">Clear</button>
+          <button class="clear-btn" id="clear-docker-output" data-i18n="common_clear">Clear</button>
         </div>
-        <pre class="output-body" id="docker-output-body">Docker output will appear here...</pre>
+        <pre class="output-body" id="docker-output-body" data-i18n="docker_output_placeholder">Docker output will appear here...</pre>
       </div>
     </section>
 
@@ -517,6 +525,17 @@
         </div>
         <p class="control-card-desc" data-i18n="ctrl_llama_enable_desc">Starts the llama service. The rest of the panel keeps working either way.</p>
         <div class="control-feedback" id="llama-enable-feedback"></div>
+      </div>
+
+      <!-- Recommended models — list lives in public/llama-models.json -->
+      <div class="control-card">
+        <div class="control-card-header">
+          <span class="control-card-title" data-i18n="ctrl_llama_recommended_title">Recommended models</span>
+        </div>
+        <p class="control-card-desc" data-i18n="ctrl_llama_recommended_desc">Tested on the Xerxes Pi and known to run well. Download one with a single click.</p>
+        <div class="empty-state" id="llama-recommended-empty" data-i18n="llama_recommended_loading">Loading recommended models...</div>
+        <div class="rec-model-list" id="llama-recommended-list" hidden></div>
+        <div class="control-feedback" id="llama-recommended-feedback"></div>
       </div>
 
       <!-- Model source -->
@@ -554,7 +573,90 @@
       <!-- OLED Display -->
       <div class="i2c-device" id="i2c-oled">
         <h3 class="i2c-device-title" data-i18n="oled_title">OLED Display</h3>
-        <div class="placeholder-note" data-i18n="oled_placeholder">To be implemented</div>
+
+        <div class="control-card">
+          <div class="control-card-header">
+            <label class="toggle-switch">
+              <input type="checkbox" id="oled-power-toggle">
+              <span class="toggle-slider"></span>
+            </label>
+            <span class="control-card-title" data-i18n="oled_power_title">Show on Display</span>
+            <span class="service-badge" id="badge-oled">—</span>
+          </div>
+          <p class="control-card-desc" data-i18n="oled_power_desc"></p>
+
+          <div class="mini-card-row">
+            <div class="mini-card">
+              <span class="mini-card-label" data-i18n="oled_label_display">Display</span>
+              <span class="mini-card-value" id="oled-display-state">—</span>
+            </div>
+            <div class="mini-card">
+              <span class="mini-card-label" data-i18n="oled_label_bus">Bus / Address</span>
+              <span class="mini-card-value" id="oled-bus-display">—</span>
+            </div>
+            <div class="mini-card">
+              <span class="mini-card-label" data-i18n="oled_label_mode">Showing</span>
+              <span class="mini-card-value" id="oled-mode-display">—</span>
+            </div>
+          </div>
+          <div class="control-feedback" id="oled-power-feedback"></div>
+        </div>
+
+        <div class="control-card">
+          <div class="control-card-header">
+            <span class="control-card-title" data-i18n="oled_content_title">Screen Content</span>
+          </div>
+          <p class="control-card-desc" data-i18n="oled_content_desc"></p>
+
+          <div class="oled-content">
+            <div class="oled-options">
+              <span class="form-label" data-i18n="oled_mode_label">Mode</span>
+              <div class="oled-choice-list">
+                <label class="model-row"><input type="radio" name="oled-mode" value="stats" checked>
+                  <span data-i18n="oled_mode_stats">Device information</span></label>
+                <label class="model-row"><input type="radio" name="oled-mode" value="qr">
+                  <span data-i18n="oled_mode_qr">QR code to this admin panel</span></label>
+              </div>
+
+              <span class="form-label" data-i18n="oled_stats_label">Information to show</span>
+              <div class="oled-choice-list" id="oled-stat-list"></div>
+            </div>
+
+            <div class="oled-preview-wrap">
+              <span class="form-label" data-i18n="oled_preview_label">Preview</span>
+              <canvas class="oled-preview" id="oled-preview" width="128" height="64"></canvas>
+              <span class="oled-preview-note" id="oled-preview-note"></span>
+            </div>
+          </div>
+
+          <div class="btn-row oled-content-btns">
+            <button class="action-btn" id="oled-content-save" type="button" data-i18n="oled_content_save">Save</button>
+          </div>
+          <div class="control-feedback" id="oled-content-feedback"></div>
+        </div>
+
+        <div class="control-card">
+          <div class="control-card-header">
+            <span class="control-card-title" data-i18n="oled_settings_title">Display Settings</span>
+          </div>
+          <p class="control-card-desc" data-i18n="oled_settings_desc"></p>
+          <div class="form-row">
+            <div class="form-field">
+              <label class="form-label" for="oled-set-bus" data-i18n="oled_input_bus">I2C Bus</label>
+              <input class="text-input rfid-narrow" type="number" id="oled-set-bus" min="0" max="1023" placeholder="1" />
+            </div>
+            <div class="form-field">
+              <label class="form-label" for="oled-set-addr" data-i18n="oled_input_addr">Address</label>
+              <input class="text-input rfid-narrow" type="text" id="oled-set-addr" placeholder="0x3C" maxlength="6" spellcheck="false" />
+            </div>
+          </div>
+          <div class="btn-row rfid-settings-btns">
+            <button class="action-btn" id="oled-settings-save" type="button" data-i18n="oled_settings_save">Save</button>
+            <button class="secondary-btn" id="oled-probe-btn" type="button" data-i18n="oled_probe_btn">Test Connection</button>
+            <button class="secondary-btn" id="oled-settings-defaults" type="button" data-i18n="oled_settings_defaults">Defaults</button>
+          </div>
+          <div class="control-feedback" id="oled-settings-feedback"></div>
+        </div>
       </div>
 
       <!-- RFID Reader -->
@@ -563,8 +665,8 @@
 
       <div class="control-card">
         <div class="control-card-header">
-          <label class="toggle-switch" title="Run tag commands">
-            <input type="checkbox" id="rfid-run-toggle" aria-label="Run tag commands">
+          <label class="toggle-switch" title="Run tag commands" data-i18n-title="rfid_reader_title">
+            <input type="checkbox" id="rfid-run-toggle" aria-label="Run tag commands" data-i18n-aria-label="rfid_reader_title">
             <span class="toggle-slider"></span>
           </label>
           <span class="control-card-title" data-i18n="rfid_reader_title">Run Tag Commands</span>
@@ -596,17 +698,17 @@
       <div class="output-panel rfid-log-panel">
         <div class="output-header">
           <span data-i18n="rfid_log_title">Reader Output</span>
-          <button class="clear-btn" id="rfid-log-clear">Clear</button>
+          <button class="clear-btn" id="rfid-log-clear" data-i18n="common_clear">Clear</button>
         </div>
-        <pre class="output-body" id="rfid-log">Tag reads and command output appear here while the reader is on.</pre>
+        <pre class="output-body" id="rfid-log" data-i18n="rfid_log_placeholder">Tag reads and command output appear here while the reader is on.</pre>
       </div>
 
       <div class="control-card">
         <div class="control-card-header">
           <span class="control-card-title" data-i18n="rfid_tags_title">Registered Tags</span>
-          <button class="clear-btn" id="rfid-tags-refresh" type="button">Refresh</button>
+          <button class="clear-btn" id="rfid-tags-refresh" type="button" data-i18n="common_refresh">Refresh</button>
         </div>
-        <p class="control-card-desc" id="rfid-tags-path">Stored in tags.json.</p>
+        <p class="control-card-desc" id="rfid-tags-path" data-i18n="rfid_tags_path" data-i18n-args='{"path":"tags.json"}'>Stored in tags.json.</p>
         <div class="empty-state" id="rfid-tags-empty" data-i18n="rfid_tags_empty">No tags registered. Add one below.</div>
         <div class="rfid-tag-list" id="rfid-tag-list" hidden></div>
         <div class="control-feedback" id="rfid-tags-feedback"></div>
@@ -627,8 +729,8 @@
         </div>
         <div class="rfid-scan-status" id="rfid-scan-status" hidden>
           <span class="rfid-pulse" aria-hidden="true"></span>
-          <span id="rfid-scan-text">Place an RFID tag near the Xerxes Pi...</span>
-          <button class="clear-btn" id="rfid-scan-cancel" type="button">Cancel</button>
+          <span id="rfid-scan-text" data-i18n="rfid_scan_place">Place an RFID tag near the Xerxes Pi...</span>
+          <button class="clear-btn" id="rfid-scan-cancel" type="button" data-i18n="common_cancel">Cancel</button>
         </div>
         <div class="form-row rfid-cmd-row">
           <div class="form-field form-field--grow">
@@ -644,12 +746,12 @@
       <div class="control-card">
         <div class="control-card-header">
           <span class="control-card-title" data-i18n="rfid_live_title">Live Scan</span>
-          <span class="service-badge badge-inactive" id="badge-rfid-live">off</span>
+          <span class="service-badge badge-inactive" id="badge-rfid-live" data-i18n="badge_off">off</span>
         </div>
         <p class="control-card-desc" data-i18n="rfid_live_desc">Shows every tag held to the reader, whether it is registered, and the raw read details. Live scan itself never runs commands; the reader still does if it is on.</p>
         <div class="btn-row">
           <button class="action-btn" id="rfid-live-btn" type="button" data-i18n="rfid_live_start">Start Live Scan</button>
-          <button class="secondary-btn" id="rfid-live-clear" type="button">Clear</button>
+          <button class="secondary-btn" id="rfid-live-clear" type="button" data-i18n="common_clear">Clear</button>
         </div>
         <div class="control-feedback rfid-live-feedback" id="rfid-live-feedback"></div>
         <div class="empty-state rfid-live-empty" id="rfid-live-empty" data-i18n="rfid_live_empty">Start a live scan, then place tags near the reader.</div>
@@ -690,26 +792,26 @@
 
   <!-- ── FOOTER ── -->
   <footer class="footer">
-    <span data-i18n="footer_version">v0.1.1 — Rapid Analysis PTY LTD</span>
+    <span data-i18n="footer_version">v0.2.0 — Rapid Analysis PTY LTD</span>
   </footer>
 
   <!-- ── ASK XERXES AI — chat with the local model, available on every tab ── -->
   <button class="chat-launcher" id="chat-launcher" type="button"
           aria-controls="chat-panel" aria-expanded="false" data-i18n="chat_launcher">Ask Xerxes AI</button>
 
-  <aside class="chat-panel" id="chat-panel" aria-label="Xerxes Assistant" aria-hidden="true">
+  <aside class="chat-panel" id="chat-panel" aria-label="Xerxes Assistant" data-i18n-aria-label="chat_title" aria-hidden="true">
     <div class="chat-header">
-      <span class="chat-status-dot" id="chat-status-dot" title="Checking Llama status..."></span>
+      <span class="chat-status-dot" id="chat-status-dot" title="Checking Llama status..." data-i18n-title="chat_dot_checking"></span>
       <span class="chat-title" data-i18n="chat_title">Xerxes Assistant</span>
-      <button class="chat-close" id="chat-close" type="button" aria-label="Close chat">&times;</button>
+      <button class="chat-close" id="chat-close" type="button" aria-label="Close chat" data-i18n-aria-label="chat_close_aria">&times;</button>
     </div>
     <div class="chat-messages" id="chat-messages" aria-live="polite">
       <div class="chat-msg assistant" data-i18n="chat_greeting">Hello! I'm your Xerxes Pi assistant. How can I help you manage your server today?</div>
     </div>
     <form class="chat-input-row" id="chat-form">
-      <input class="chat-input" id="chat-input" type="text" placeholder="Type a message..."
-             autocomplete="off" aria-label="Message" />
-      <button class="chat-send" id="chat-send" type="submit" aria-label="Send">
+      <input class="chat-input" id="chat-input" type="text" placeholder="Type a message..." data-i18n-placeholder="chat_input_placeholder"
+             autocomplete="off" aria-label="Message" data-i18n-aria-label="chat_message_aria" />
+      <button class="chat-send" id="chat-send" type="submit" aria-label="Send" data-i18n-aria-label="chat_send_aria">
         <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"
              stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
           <path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>
@@ -718,6 +820,7 @@
     </form>
   </aside>
 
-  <script src="app.js"></script>
+  <script src="i18n.js?v=1"></script>
+  <script src="app.js?v=3"></script>
 </body>
 </html>

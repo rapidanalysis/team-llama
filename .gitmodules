@@ -1,3 +1,6 @@
+# llama.cpp is pinned to upstream release b11062
+# (https://github.com/ggml-org/llama.cpp/releases/tag/b11062).
+# To move to another release, see "Updating llama.cpp" in README.md.
 [submodule "third_party/llama.cpp"]
 	path = third_party/llama.cpp
-	url = https://github.com/Nozratt/llama.cpp
+	url = https://github.com/ggml-org/llama.cpp.git

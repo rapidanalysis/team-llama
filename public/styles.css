@@ -93,7 +93,25 @@ body {
 .brand-title { font-size: 14px; font-weight: 600; }
 .brand-sub   { font-size: 11px; color: var(--text-secondary); letter-spacing: 0.02em; }
 
-.navbar-nav { display: flex; align-items: center; gap: 4px; flex: 1; }
+/* min-width: 0 lets the links scroll sideways instead of pushing the page wide
+   when a language has longer labels */
+.navbar-nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.navbar-nav::-webkit-scrollbar { display: none; }
+.nav-link { white-space: nowrap; flex-shrink: 0; }
+
+@media (max-width: 1200px) {
+  .navbar { gap: 12px; padding: 0 16px; }
+  .brand-sub { display: none; }
+  .nav-link { padding: 5px 8px; }
+}
 
 .nav-link {
   padding: 5px 12px;
@@ -151,6 +169,47 @@ body {
 }
 
 .theme-toggle:hover { background: var(--border); color: var(--text-primary); }
+
+/* ── LANGUAGE PICKER (navbar) ── */
+.lang-picker {
+  position: relative;
+  display: flex;
+  align-items: center;
+  color: var(--text-secondary);
+}
+
+.lang-picker-icon {
+  position: absolute;
+  left: 9px;
+  pointer-events: none;
+}
+
+.lang-select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 5px 26px 5px 28px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background-color: transparent;
+  /* chevron drawn in CSS so it follows the theme colour */
+  background-image:
+    linear-gradient(45deg, transparent 50%, currentColor 50%),
+    linear-gradient(135deg, currentColor 50%, transparent 50%);
+  background-position: right 13px center, right 9px center;
+  background-size: 4px 4px, 4px 4px;
+  background-repeat: no-repeat;
+  color: var(--text-secondary);
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+}
+
+.lang-select:hover { background-color: var(--border); color: var(--text-primary); }
+.lang-select:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.lang-select:disabled { opacity: 0.6; cursor: progress; }
+.lang-select option { color: var(--text-primary); background: var(--bg-card); }
 
 /* ── CONSOLE BUTTON (navbar) ── */
 .console-btn {
@@ -861,6 +920,36 @@ body {
 .model-row.disabled { cursor: default; opacity: 0.6; }
 .model-name { overflow-wrap: anywhere; }
 
+/* Recommended models: name, file + size, note, and a Download button */
+.rec-model-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.rec-model-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+}
+.rec-model-info { flex: 1 1 240px; min-width: 0; }
+.rec-model-name { font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.rec-model-meta {
+  margin-top: 2px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-secondary);
+  overflow-wrap: anywhere;
+}
+.rec-model-note { margin-top: 6px; font-size: 13px; color: var(--text-secondary); }
+.rec-model-row .action-btn:disabled { opacity: 0.5; cursor: default; }
+#llama .rec-model-row .service-badge { margin-left: 0; }
+
 /* Give control-card-header room for the toggle beside the title */
 #llama .control-card-header {
   display: flex;
@@ -887,7 +976,6 @@ body {
   padding-bottom: 8px;
   border-bottom: 1px solid var(--border);
 }
-#i2c-oled .placeholder-note { background: var(--bg-card); font-size: 13px; }
 #i2c .control-card-header { gap: 12px; }
 #i2c .control-card-header .service-badge,
 #i2c .control-card-header .clear-btn { margin-left: auto; }
@@ -996,6 +1084,46 @@ body {
   color: var(--text-secondary);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* OLED: options on the left, a 2x preview of the 128x64 screen on the right */
+.oled-content {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+.oled-options { flex: 1; min-width: 0; }
+.oled-choice-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 6px 0 14px;
+}
+.oled-preview-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: none;
+}
+.oled-preview {
+  width: 256px;
+  height: 128px;
+  background: #000;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  image-rendering: pixelated;
+}
+.oled-preview-note {
+  font-size: 12px;
+  color: var(--text-secondary);
+  max-width: 256px;
+  overflow-wrap: anywhere;
+}
+.oled-content-btns { margin-top: 4px; margin-bottom: 8px; }
+
+@media (max-width: 640px) {
+  .oled-content { flex-direction: column; }
+  .oled-preview { width: 100%; max-width: 256px; height: auto; aspect-ratio: 2 / 1; }
 }
 
 .rfid-narrow { width: 110px; flex: none; }

@@ -3,8 +3,12 @@ CXXFLAGS = -std=c++17 -Wall -O2 -Iinclude -Ithird_party
 LDLIBS   = -pthread -lcurl
 
 TARGET = xerxes_backend
-SRCS   = $(wildcard src/*.cpp) $(wildcard src/rfid/*.cpp)
-HDRS   = $(wildcard include/*.h)
+# The OLED display (src/oled) runs inside the backend, so there is one binary
+OLED_SRCS = $(wildcard src/oled/*.cpp)
+SRCS   = $(wildcard src/*.cpp) $(wildcard src/rfid/*.cpp) $(OLED_SRCS)
+HDRS   = $(wildcard include/*.h) $(wildcard src/oled/*.h src/oled/*.hpp)
+
+all: $(TARGET)
 
 $(TARGET): $(SRCS) $(HDRS)
 	$(CXX) $(CXXFLAGS) $(SRCS) -o $(TARGET) $(LDLIBS)
@@ -28,8 +32,10 @@ test_newt_SRCS  = src/newt_manager.cpp
 # The RFID tests use a simulated module instead of /dev/i2c-N
 test_rfid_driver_SRCS  = src/rfid/rfid.cpp tests/mfrc522_sim.cpp
 test_rfid_manager_SRCS = src/rfid/rfid_manager.cpp src/rfid/rfid.cpp src/rfid/tags.cpp tests/mfrc522_sim.cpp
+# No display needed: checks settings, validation and the preview
+test_oled_manager_SRCS = $(OLED_SRCS)
 
-TESTS     = test_utils test_newt test_rfid_driver test_rfid_manager
+TESTS     = test_utils test_newt test_rfid_driver test_rfid_manager test_oled_manager
 TEST_BINS = $(addprefix $(TEST_DIR)/,$(TESTS))
 
 .SECONDEXPANSION:
@@ -59,4 +65,4 @@ clean:
 	rm -f $(TARGET)
 	rm -rf $(TEST_DIR)
 
-.PHONY: clean test tests $(TESTS)
+.PHONY: all clean test tests $(TESTS)

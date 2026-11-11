@@ -27,7 +27,13 @@ mkdir -p $APP_DIR
 
 # 4. Copy files to the deployment directory
 echo "[2/4] Copying binary and frontend assets..."
+# A running binary can't be overwritten ("Text file busy"), so stop it first.
+# It is started again in step 7.
+systemctl stop xerxes 2>/dev/null || true
 cp xerxes_backend $APP_DIR/
+# Replace public/ rather than copying over it, so files removed from the
+# project (e.g. the old lang.json) don't linger in the deployed panel
+rm -rf "$APP_DIR/public"
 cp -r public $APP_DIR/
 
 # 5. Ensure the binary is executable

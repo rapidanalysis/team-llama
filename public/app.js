@@ -4,27 +4,42 @@
             output popup, system commands, network info & config,
             hostname rename, Tailscale dashboard, ngrok dashboard,
             service badges, reboot/shutdown, Llama (local LLM),
-            I2C (PiicoDev RFID reader).
+            I2C (OLED display, PiicoDev RFID reader).
    ============================================================ */
 
 var API_BASE = "";  // same origin — served by the C++ backend
 
-/* ── LOCALISATION ── */
-function loadLang() {
-  var xhr = new XMLHttpRequest();
-  xhr.open("GET", "/lang.json", true);
-  xhr.onload = function () {
-    if (xhr.status === 200) {
-      try {
-        var strings = JSON.parse(xhr.responseText);
-        document.querySelectorAll("[data-i18n]").forEach(function (el) {
-          var key = el.getAttribute("data-i18n");
-          if (strings[key]) el.textContent = strings[key];
-        });
-      } catch (e) { console.warn("lang.json parse error:", e); }
-    }
-  };
-  xhr.send();
+/* ── LOCALISATION ──
+   Strings come from public/i18n/<lang>.json via i18n.js (t, I18N).
+   UI text is written with I18N.setText(el, key, params) so it re-translates
+   when the language changes. Text from the device itself (command output,
+   backend error messages) is shown as-is.
+
+   msg(key, params) wraps a translatable message so helpers such as
+   showFeedback() and setPopupOutput() can accept either one of these or a
+   plain string. */
+function msg(key, params) { return { i18nKey: key, params: params || null }; }
+
+function setMsg(el, m) {
+  if (m && typeof m === "object" && m.i18nKey) {
+    I18N.setText(el, m.i18nKey, m.params);
+  } else {
+    I18N.clear(el);
+    el.textContent = m == null ? "" : m;
+  }
+}
+
+function msgText(m) {
+  return (m && typeof m === "object" && m.i18nKey) ? t(m.i18nKey, m.params) : (m == null ? "" : String(m));
+}
+
+// Status words that come from systemd / Docker etc. Known ones are translated;
+// anything else is shown exactly as the device reported it.
+function setStatusBadge(el, status, cls) {
+  var key = "badge_" + String(status || "unknown").replace(/[^a-z0-9]+/gi, "_").toLowerCase();
+  if (t(key) !== key) I18N.setText(el, key);
+  else setMsg(el, status);
+  if (cls !== undefined) el.className = "service-badge " + cls;
 }
 
 /* ── THEME TOGGLE ── */
@@ -32,16 +47,23 @@ var themeToggle = document.getElementById("theme-toggle");
 var themeLabel  = document.getElementById("theme-label");
 var html        = document.documentElement;
 
-var savedTheme = localStorage.getItem("xerxes-theme") || "light";
+function readPref(key, def) { try { return localStorage.getItem(key) || def; } catch (e) { return def; } }
+function writePref(key, val) { try { localStorage.setItem(key, val); } catch (e) {} }
+
+function setThemeLabel(theme) {
+  I18N.setText(themeLabel, theme === "dark" ? "toggle_light" : "toggle_dark");
+}
+
+var savedTheme = readPref("xerxes-theme", "light");
 html.setAttribute("data-theme", savedTheme);
-themeLabel.textContent = savedTheme === "dark" ? "Light" : "Dark";
+setThemeLabel(savedTheme);
 
 themeToggle.addEventListener("click", function () {
   var current = html.getAttribute("data-theme");
   var next    = current === "dark" ? "light" : "dark";
   html.setAttribute("data-theme", next);
-  localStorage.setItem("xerxes-theme", next);
-  themeLabel.textContent = next === "dark" ? "Light" : "Dark";
+  writePref("xerxes-theme", next);
+  setThemeLabel(next);
 });
 
 /* ── BACKEND STATUS CHECK ── */
@@ -54,8 +76,8 @@ function checkStatus() {
   xhr.timeout = 4000;
   xhr.onload = function () {
     if (xhr.status === 200) {
-      statusDot.className     = "status-dot online";
-      statusLabel.textContent = "Backend Online";
+      statusDot.className = "status-dot online";
+      I18N.setText(statusLabel, "status_online");
     } else { setOffline(); }
   };
   xhr.onerror   = setOffline;
@@ -64,12 +86,9 @@ function checkStatus() {
 }
 
 function setOffline() {
-  statusDot.className     = "status-dot offline";
-  statusLabel.textContent = "Backend Offline";
+  statusDot.className = "status-dot offline";
+  I18N.setText(statusLabel, "status_offline");
 }
-
-checkStatus();
-setInterval(checkStatus, 15000);
 
 /* ── TAB SWITCHING ── */
 var navLinks = document.querySelectorAll(".nav-link[data-section]");
@@ -90,8 +109,8 @@ navLinks.forEach(function (link) {
     // Lazy-load section data
     if (target === "network") loadNetworkInfo();
     if (target === "tunnels") { loadTailscaleDetails(); loadNewtStatus(); }
-    if (target === "llama")   { loadLlamaStatus(); loadLlamaModels(); }
-    if (target === "i2c") rfidOnShow(); else rfidOnHide();
+    if (target === "llama")   { loadLlamaStatus(); loadLlamaModels(); loadLlamaRecommended(); }
+    if (target === "i2c") { rfidOnShow(); oledOnShow(); } else { rfidOnHide(); oledOnHide(); }
   });
 });
 
@@ -100,16 +119,17 @@ var outputPopup     = document.getElementById("output-popup");
 var popupBody       = document.getElementById("popup-body");
 var popupTitle      = document.getElementById("popup-title");
 var closeAnimHandler = null;          // tracks in-flight close animation handler
-var consoleHistory  = "No commands have been run yet.";  // last real output for Console button
+var consoleHistory  = null;          // last real output for Console button (null = nothing yet)
 
-// Sets popup output text AND saves it to the console history log
+// Sets popup output AND saves it to the console history log.
+// text: a string (command output) or msg(key, params).
 function setPopupOutput(text) {
-  popupBody.textContent = text;
-  if (text && text !== "Running..." && text !== "Enabling Tailscale...") {
-    consoleHistory = text;
-  }
+  setMsg(popupBody, text);
+  if (text) consoleHistory = text;
 }
 
+// title / text: a string or msg(key, params). Progress text shown here
+// ("Running...") is deliberately not saved to the console history.
 function showOutputPopup(title, text) {
   // If a close animation is mid-flight, cancel it before re-opening so the
   // stale handler doesn't fire on this open animation's animationend
@@ -118,8 +138,8 @@ function showOutputPopup(title, text) {
     closeAnimHandler = null;
   }
   outputPopup.classList.remove("popup-closing");
-  popupTitle.textContent = title || "Output";
-  popupBody.textContent  = text  || "Running...";
+  setMsg(popupTitle, title || msg("output_title"));
+  setMsg(popupBody,  text  || msg("common_running"));
   outputPopup.hidden = false;
 }
 
@@ -149,7 +169,7 @@ outputPopup.addEventListener("click", function (e) {
 
 /* ── CONSOLE BUTTON (navbar) ── */
 document.getElementById("console-open-btn").addEventListener("click", function () {
-  showOutputPopup("Console", consoleHistory);
+  showOutputPopup(msg("popup_console"), consoleHistory || msg("console_empty"));
 });
 
 /* ── DASHBOARD CARDS ── */
@@ -198,11 +218,8 @@ function loadServices() {
 function updateBadge(id, status) {
   var el = document.getElementById(id);
   if (!el) return;
-  el.textContent = status || "unknown";
-  el.className   = "service-badge";
-  if (status === "active")        el.classList.add("badge-active");
-  else if (status === "failed")   el.classList.add("badge-failed");
-  else                            el.classList.add("badge-inactive");
+  setStatusBadge(el, status || "unknown",
+    status === "active" ? "badge-active" : status === "failed" ? "badge-failed" : "badge-inactive");
 }
 
 /* ── SYSTEM COMMANDS (write to inline output panel) ── */
@@ -217,7 +234,7 @@ document.querySelectorAll(".sys-cmd").forEach(function (btn) {
 function runSystemCommand(command, btn) {
   btn.disabled = true;
   btn.classList.add("running");
-  outputBody.textContent = "Running: " + command + "...\n";
+  I18N.setText(outputBody, "output_running_cmd", { command: btn.textContent });
 
   var xhr = new XMLHttpRequest();
   xhr.open("POST", API_BASE + "/api/command", true);
@@ -227,18 +244,18 @@ function runSystemCommand(command, btn) {
   xhr.onload = function () {
     try {
       var data = JSON.parse(xhr.responseText);
-      outputBody.textContent = data.output || data.message || xhr.responseText;
-    } catch (e) { outputBody.textContent = xhr.responseText; }
+      setMsg(outputBody, data.output || data.message || xhr.responseText);
+    } catch (e) { setMsg(outputBody, xhr.responseText); }
     btn.disabled = false;
     btn.classList.remove("running");
   };
-  xhr.onerror   = function () { outputBody.textContent = "Error: Could not reach the backend."; btn.disabled = false; btn.classList.remove("running"); };
-  xhr.ontimeout = function () { outputBody.textContent = "Error: Request timed out.";           btn.disabled = false; btn.classList.remove("running"); };
+  xhr.onerror   = function () { I18N.setText(outputBody, "err_backend_unreachable"); btn.disabled = false; btn.classList.remove("running"); };
+  xhr.ontimeout = function () { I18N.setText(outputBody, "err_timeout");             btn.disabled = false; btn.classList.remove("running"); };
   xhr.send(JSON.stringify({ command: command }));
 }
 
 document.getElementById("clear-output").addEventListener("click", function () {
-  outputBody.textContent = "Command output will appear here...";
+  I18N.setText(outputBody, "output_placeholder");
 });
 
 /* ── GENERIC CMD-BTN (non-system — shows output popup) ── */
@@ -249,8 +266,11 @@ document.querySelectorAll(".cmd-btn:not(.sys-cmd):not(.newt-btn)").forEach(funct
 });
 
 function runPopupCommand(command, btn) {
-  var label = command.replace(/_/g, " ");
-  showOutputPopup(label, "Running...");
+  // Popup title: "<card title> — <button>", e.g. "SMB File Sharing — Start"
+  var card  = btn.closest(".control-card");
+  var head  = card && card.querySelector(".control-card-title");
+  var label = (head ? head.textContent.trim() + " — " : "") + btn.textContent.trim();
+  showOutputPopup(label, msg("common_running"));
   btn.disabled = true;
   btn.classList.add("running");
 
@@ -275,8 +295,8 @@ function runPopupCommand(command, btn) {
       if (command.indexOf("tailscale") !== -1) loadTailscaleDetails();
     }
   };
-  xhr.onerror   = function () { setPopupOutput("Error: Could not reach the backend."); btn.disabled = false; btn.classList.remove("running"); };
-  xhr.ontimeout = function () { setPopupOutput("Error: Request timed out.");           btn.disabled = false; btn.classList.remove("running"); };
+  xhr.onerror   = function () { setPopupOutput(msg("err_backend_unreachable")); btn.disabled = false; btn.classList.remove("running"); };
+  xhr.ontimeout = function () { setPopupOutput(msg("err_timeout"));             btn.disabled = false; btn.classList.remove("running"); };
   xhr.send(JSON.stringify({ command: command }));
 }
 
@@ -308,7 +328,7 @@ function loadNetworkInfo() {
         if (ifaces.length === 0) {
           var opt = document.createElement("option");
           opt.value = "";
-          opt.textContent = "No interfaces found";
+          I18N.setText(opt, "net_no_interfaces");
           select.appendChild(opt);
         }
       } catch (e) { console.warn("netinfo parse error:", e); }
@@ -331,7 +351,7 @@ document.getElementById("net-config-btn").addEventListener("click", function () 
   var btn      = this;
 
   if (!iface) {
-    showFeedback(feedback, "Please select a network interface.", "error");
+    showFeedback(feedback, msg("net_err_no_iface"), "error");
     return;
   }
 
@@ -343,13 +363,13 @@ document.getElementById("net-config-btn").addEventListener("click", function () 
     body.dns     = document.getElementById("net-static-dns").value.trim();
 
     if (!body.ip || !body.gateway) {
-      showFeedback(feedback, "IP address and gateway are required for static mode.", "error");
+      showFeedback(feedback, msg("net_err_static_required"), "error");
       return;
     }
   }
 
-  btn.disabled    = true;
-  btn.textContent = "Applying...";
+  btn.disabled = true;
+  I18N.setText(btn, "net_applying");
   showFeedback(feedback, "", "");
 
   var xhr = new XMLHttpRequest();
@@ -361,18 +381,18 @@ document.getElementById("net-config-btn").addEventListener("click", function () 
     try {
       var data = JSON.parse(xhr.responseText);
       if (data.status === "ok") {
-        showFeedback(feedback, data.output || "Configuration updated. Reboot to apply.", "success");
+        showFeedback(feedback, data.output || msg("net_success_default"), "success");
       } else {
-        showFeedback(feedback, data.message || "Failed to apply configuration.", "error");
+        showFeedback(feedback, data.message || msg("net_fail_default"), "error");
       }
     } catch (e) {
-      showFeedback(feedback, "Unexpected response from backend.", "error");
+      showFeedback(feedback, msg("err_unexpected"), "error");
     }
-    btn.disabled    = false;
-    btn.textContent = "Apply";
+    btn.disabled = false;
+    I18N.setText(btn, "ctrl_ipconfig_btn");
   };
-  xhr.onerror   = function () { showFeedback(feedback, "Error: Could not reach backend.", "error"); btn.disabled = false; btn.textContent = "Apply"; };
-  xhr.ontimeout = function () { showFeedback(feedback, "Error: Request timed out.", "error");       btn.disabled = false; btn.textContent = "Apply"; };
+  xhr.onerror   = function () { showFeedback(feedback, msg("err_backend_unreachable"), "error"); btn.disabled = false; I18N.setText(btn, "ctrl_ipconfig_btn"); };
+  xhr.ontimeout = function () { showFeedback(feedback, msg("err_timeout"), "error");             btn.disabled = false; I18N.setText(btn, "ctrl_ipconfig_btn"); };
   xhr.send(JSON.stringify(body));
 });
 
@@ -387,21 +407,21 @@ hostnameReset.addEventListener("click", function () {
   if (currentHostname && currentHostname !== "—") {
     hostnameInput.value = currentHostname;
     hostnameInput.focus();
-    showFeedback(hostnameFeedback, "Current hostname pre-filled — click Rename to apply.", "");
+    showFeedback(hostnameFeedback, msg("hostname_prefilled"), "");
   } else {
-    showFeedback(hostnameFeedback, "Could not read current hostname — try refreshing.", "error");
+    showFeedback(hostnameFeedback, msg("hostname_read_fail"), "error");
   }
 });
 
 hostnameBtn.addEventListener("click", function () {
   var newName = hostnameInput.value.trim();
   if (!newName) {
-    showFeedback(hostnameFeedback, "Please enter a hostname.", "error");
+    showFeedback(hostnameFeedback, msg("hostname_empty"), "error");
     return;
   }
 
-  hostnameBtn.disabled    = true;
-  hostnameBtn.textContent = "Renaming...";
+  hostnameBtn.disabled = true;
+  I18N.setText(hostnameBtn, "hostname_renaming");
   showFeedback(hostnameFeedback, "", "");
 
   var xhr = new XMLHttpRequest();
@@ -415,18 +435,18 @@ hostnameBtn.addEventListener("click", function () {
       if (data.output && data.output.indexOf("[error]") !== -1) {
         showFeedback(hostnameFeedback, data.output, "error");
       } else {
-        showFeedback(hostnameFeedback, "Hostname updated successfully. Reboot to apply fully.", "success");
+        showFeedback(hostnameFeedback, msg("hostname_success"), "success");
         hostnameInput.value = "";
         loadDashboard();
       }
     } catch (e) {
-      showFeedback(hostnameFeedback, "Unexpected response from backend.", "error");
+      showFeedback(hostnameFeedback, msg("err_unexpected"), "error");
     }
-    hostnameBtn.disabled    = false;
-    hostnameBtn.textContent = "Rename";
+    hostnameBtn.disabled = false;
+    I18N.setText(hostnameBtn, "ctrl_hostname_btn");
   };
-  xhr.onerror   = function () { showFeedback(hostnameFeedback, "Error: Could not reach backend.", "error"); hostnameBtn.disabled = false; hostnameBtn.textContent = "Rename"; };
-  xhr.ontimeout = function () { showFeedback(hostnameFeedback, "Error: Request timed out.", "error");       hostnameBtn.disabled = false; hostnameBtn.textContent = "Rename"; };
+  xhr.onerror   = function () { showFeedback(hostnameFeedback, msg("err_backend_unreachable"), "error"); hostnameBtn.disabled = false; I18N.setText(hostnameBtn, "ctrl_hostname_btn"); };
+  xhr.ontimeout = function () { showFeedback(hostnameFeedback, msg("err_timeout"), "error");             hostnameBtn.disabled = false; I18N.setText(hostnameBtn, "ctrl_hostname_btn"); };
   xhr.send(JSON.stringify({ hostname: newName }));
 });
 
@@ -475,13 +495,13 @@ document.getElementById("ts-enable-btn").addEventListener("click", function () {
 
   // Auth keys are alphanumeric + hyphens + underscores only
   if (authkey && !/^[a-zA-Z0-9\-_]+$/.test(authkey)) {
-    showFeedback(feedback, "Invalid auth key format.", "error");
+    showFeedback(feedback, msg("ts_err_authkey"), "error");
     return;
   }
 
-  showOutputPopup("Tailscale — Enable", "Enabling Tailscale...");
-  btn.disabled    = true;
-  btn.textContent = "Enabling...";
+  showOutputPopup(msg("ts_popup_title"), msg("ts_enabling_output"));
+  btn.disabled = true;
+  I18N.setText(btn, "common_enabling");
   showFeedback(feedback, "", "");
 
   var xhr = new XMLHttpRequest();
@@ -494,13 +514,13 @@ document.getElementById("ts-enable-btn").addEventListener("click", function () {
       var data = JSON.parse(xhr.responseText);
       setPopupOutput(data.output || data.message || xhr.responseText);
     } catch (e) { setPopupOutput(xhr.responseText); }
-    btn.disabled    = false;
-    btn.textContent = "Enable";
+    btn.disabled = false;
+    I18N.setText(btn, "ctrl_tailscale_up");
     loadServices();
     loadTailscaleDetails();
   };
-  xhr.onerror   = function () { setPopupOutput("Error: Could not reach backend."); btn.disabled = false; btn.textContent = "Enable"; };
-  xhr.ontimeout = function () { setPopupOutput("Tailscale up timed out — check if auth is needed."); btn.disabled = false; btn.textContent = "Enable"; };
+  xhr.onerror   = function () { setPopupOutput(msg("err_backend_unreachable")); btn.disabled = false; I18N.setText(btn, "ctrl_tailscale_up"); };
+  xhr.ontimeout = function () { setPopupOutput(msg("ts_timeout"));              btn.disabled = false; I18N.setText(btn, "ctrl_tailscale_up"); };
   xhr.send(JSON.stringify({ authkey: authkey }));
 });
 
@@ -512,9 +532,9 @@ document.getElementById("ngrok-start-btn").addEventListener("click", function ()
   var portNum   = command.replace("ngrok_start_", "");
   var btn = this;
 
-  showOutputPopup("ngrok — Start", "Starting ngrok (" + portLabel + ")...");
-  btn.disabled    = true;
-  btn.textContent = "Starting...";
+  showOutputPopup(msg("ngrok_popup_title"), msg("ngrok_starting_output", { port: portLabel }));
+  btn.disabled = true;
+  I18N.setText(btn, "common_starting");
 
   var xhr = new XMLHttpRequest();
   xhr.open("POST", API_BASE + "/api/command", true);
@@ -526,19 +546,19 @@ document.getElementById("ngrok-start-btn").addEventListener("click", function ()
       var data = JSON.parse(xhr.responseText);
       setPopupOutput(data.output || data.message || xhr.responseText);
     } catch (e) { setPopupOutput(xhr.responseText); }
-    btn.disabled    = false;
-    btn.textContent = "Start";
+    btn.disabled = false;
+    I18N.setText(btn, "ctrl_ngrok_start");
     loadServices();
 
     // Show searching state while we wait for ngrok to fully connect
-    document.getElementById("ngrok-url").textContent          = "Searching for URL...";
+    I18N.setText(document.getElementById("ngrok-url"), "ngrok_searching");
     document.getElementById("ngrok-port-display").textContent = portNum;
     // ngrok takes several seconds to establish the tunnel and start its local API
     // on :4040, so we start after 3 s and retry up to 4 times every 3 s.
     setTimeout(function () { fetchNgrokUrl(portNum, 1); }, 3000);
   };
-  xhr.onerror   = function () { setPopupOutput("Error: Could not reach backend."); btn.disabled = false; btn.textContent = "Start"; };
-  xhr.ontimeout = function () { setPopupOutput("Error: Request timed out.");       btn.disabled = false; btn.textContent = "Start"; };
+  xhr.onerror   = function () { setPopupOutput(msg("err_backend_unreachable")); btn.disabled = false; I18N.setText(btn, "ctrl_ngrok_start"); };
+  xhr.ontimeout = function () { setPopupOutput(msg("err_timeout"));             btn.disabled = false; I18N.setText(btn, "ctrl_ngrok_start"); };
   xhr.send(JSON.stringify({ command: command }));
 });
 
@@ -568,14 +588,14 @@ function fetchNgrokUrl(localPort, attempt) {
       }
 
       if (match) {
-        document.getElementById("ngrok-url").textContent          = match[1];
+        setMsg(document.getElementById("ngrok-url"), match[1]);
         document.getElementById("ngrok-port-display").textContent = localPort || "—";
       } else if (attempt < maxAttempts) {
         // Neither source had a URL yet — retry
         setTimeout(function () { fetchNgrokUrl(localPort, attempt + 1); }, 3000);
       } else {
         // All retries exhausted — tell user to click Check Status for details
-        document.getElementById("ngrok-url").textContent = "URL not found — click Check Status for log";
+        I18N.setText(document.getElementById("ngrok-url"), "ngrok_not_found");
       }
     } catch (e) {
       if (attempt < maxAttempts) {
@@ -623,28 +643,37 @@ var newtUpdateFeedback = document.getElementById("newt-update-feedback");
 var newtUpdateBusy   = false;
 var newtConfigured   = false;   // automatic updates can only be turned on once Newt is set up
 
+var newtHasSecret    = false;   // a secret is saved on the device
+var newtLastStatus   = null;    // last /api/newt/status reply, to re-render dates on a language switch
+
+// badge / label are translation keys (badge_* and newt_state_*)
 var NEWT_STATES = {
-  connected:          { badge: "connected",   cls: "badge-active",   label: "Connected" },
-  connecting:         { badge: "connecting",  cls: "badge-neutral",  label: "Connecting..." },
-  auth_failed:        { badge: "rejected",    cls: "badge-failed",   label: "Rejected" },
-  error:              { badge: "error",       cls: "badge-failed",   label: "Can't reach server" },
-  stopped:            { badge: "stopped",     cls: "badge-inactive", label: "Stopped" },
-  not_configured:     { badge: "not set up",  cls: "badge-inactive", label: "Not set up" },
-  docker_unavailable: { badge: "docker error", cls: "badge-failed",  label: "Docker unavailable" }
+  connected:          { badge: "badge_connected",    cls: "badge-active",   label: "newt_state_connected" },
+  connecting:         { badge: "badge_connecting",   cls: "badge-neutral",  label: "newt_state_connecting" },
+  auth_failed:        { badge: "badge_rejected",     cls: "badge-failed",   label: "newt_state_auth_failed" },
+  error:              { badge: "badge_error",        cls: "badge-failed",   label: "newt_state_error" },
+  stopped:            { badge: "badge_stopped",      cls: "badge-inactive", label: "newt_state_stopped" },
+  not_configured:     { badge: "badge_not_set_up",   cls: "badge-inactive", label: "newt_state_not_configured" },
+  docker_unavailable: { badge: "badge_docker_error", cls: "badge-failed",   label: "newt_state_docker_unavailable" }
 };
 
-// Plain-language hints for the states that need the user to do something
+// Plain-language hints (translation keys) for states that need the user to do something
 var NEWT_HINTS = {
-  auth_failed:        "Pangolin rejected the Newt ID or secret. Check them against your Site in Pangolin.",
-  error:              "Newt can't reach the Pangolin server. Check the endpoint address and this device's internet connection.",
-  docker_unavailable: "Newt needs Docker, and the backend can't use it."
+  auth_failed:        "newt_hint_auth_failed",
+  error:              "newt_hint_error",
+  docker_unavailable: "newt_hint_docker_unavailable"
 };
 
 function renderNewtStatus(data) {
-  var st = NEWT_STATES[data.state] || { badge: data.state || "unknown", cls: "badge-neutral", label: data.state || "Unknown" };
-  newtBadge.textContent   = st.badge;
-  newtBadge.className     = "service-badge " + st.cls;
-  newtStateEl.textContent = st.label;
+  var st = NEWT_STATES[data.state];
+  if (st) {
+    I18N.setText(newtBadge, st.badge);
+    newtBadge.className = "service-badge " + st.cls;
+    I18N.setText(newtStateEl, st.label);
+  } else {
+    setStatusBadge(newtBadge, data.state || "unknown", "badge-neutral");
+    setMsg(newtStateEl, data.state || msg("newt_state_unknown"));
+  }
   newtEndpointShow.textContent = data.endpoint || "—";
   newtIdShow.textContent       = data.newt_id  || "—";
   newtVersionShow.textContent  = data.version  || "—";
@@ -652,12 +681,16 @@ function renderNewtStatus(data) {
   // Pre-fill the form with the saved settings (never the secret)
   if (!newtEndpointIn.value && data.endpoint) newtEndpointIn.value = data.endpoint;
   if (!newtIdIn.value && data.newt_id)        newtIdIn.value       = data.newt_id;
-  newtSecretIn.placeholder = data.has_secret ? "Saved — leave blank to keep it" : "Newt secret";
+  newtHasSecret = !!data.has_secret;
+  newtSecretIn.setAttribute("data-i18n-placeholder", newtHasSecret ? "newt_secret_saved_placeholder" : "newt_secret_placeholder");
+  newtSecretIn.placeholder = t(newtSecretIn.getAttribute("data-i18n-placeholder"));
 
   if (NEWT_HINTS[data.state]) {
-    showFeedback(newtFeedback, NEWT_HINTS[data.state] + (data.detail ? " (" + data.detail + ")" : ""), "error");
+    showFeedback(newtFeedback, data.detail
+      ? msg("newt_hint_with_detail", { hint: msg(NEWT_HINTS[data.state]), detail: data.detail })
+      : msg(NEWT_HINTS[data.state]), "error");
   } else if (data.state === "connected") {
-    showFeedback(newtFeedback, "Tunnel is up. This device is reachable through Pangolin.", "success");
+    showFeedback(newtFeedback, msg("newt_connected_msg"), "success");
   }
 
   // Show how to fix Docker access, or hide the box once it works
@@ -671,8 +704,7 @@ function renderNewtStatus(data) {
 function loadNewtStatus(cb) {
   llamaRequest("GET", "/api/newt/status", null, 10000, function (err, data) {
     if (err) {
-      newtBadge.textContent = "unknown";
-      newtBadge.className   = "service-badge badge-neutral";
+      setStatusBadge(newtBadge, "unknown", "badge-neutral");
       if (cb) cb(null);
       return;
     }
@@ -689,7 +721,7 @@ function pollNewtStatus(triesLeft) {
     if (state === "connecting" && triesLeft > 0) {
       newtPollTimer = setTimeout(function () { pollNewtStatus(triesLeft - 1); }, 3000);
     } else if (state === "connecting") {
-      showFeedback(newtFeedback, "Still connecting. Click View Logs to see what Newt is doing.", "error");
+      showFeedback(newtFeedback, msg("newt_still_connecting"), "error");
     }
   });
 }
@@ -706,7 +738,9 @@ function loadNewtDockerFix(cb) {
 function renderNewtDockerFix(data) {
   if (data.state === "ok") { newtFixBox.hidden = true; return; }
 
-  newtFixMessage.textContent = data.message + (data.detail ? " Docker said: " + data.detail : "");
+  setMsg(newtFixMessage, data.detail
+    ? msg("newt_docker_said", { message: data.message, detail: data.detail })
+    : data.message);
   newtFixOptions.textContent = "";
 
   (data.fixes || []).forEach(function (fix, i) {
@@ -715,7 +749,7 @@ function renderNewtDockerFix(data) {
 
     var title = document.createElement("div");
     title.className   = "newt-fix-option-title";
-    title.textContent = (data.fixes.length > 1 ? "Option " + (i + 1) + ": " : "") + fix.title;
+    setMsg(title, data.fixes.length > 1 ? msg("newt_fix_option", { n: i + 1, title: fix.title }) : fix.title);
     opt.appendChild(title);
 
     var why = document.createElement("div");
@@ -730,7 +764,7 @@ function renderNewtDockerFix(data) {
     var copy = document.createElement("button");
     copy.type = "button";
     copy.className   = "secondary-btn";
-    copy.textContent = "Copy";
+    I18N.setText(copy, "common_copy");
     copy.addEventListener("click", function () { copyNewtCommands(pre, copy); });
     row.appendChild(pre);
     row.appendChild(copy);
@@ -757,14 +791,14 @@ function copyNewtCommands(pre, btn) {
     var sel = window.getSelection();
     sel.removeAllRanges();
     sel.addRange(range);
-    btn.textContent = "Press Ctrl+C";
+    I18N.setText(btn, "common_press_ctrl_c");
   }
   if (navigator.clipboard && window.isSecureContext) {
-    navigator.clipboard.writeText(text).then(function () { btn.textContent = "Copied"; }, selected);
+    navigator.clipboard.writeText(text).then(function () { I18N.setText(btn, "common_copied"); }, selected);
   } else {
     selected();
   }
-  setTimeout(function () { btn.textContent = "Copy"; }, 2500);
+  setTimeout(function () { I18N.setText(btn, "common_copy"); }, 2500);
 }
 
 document.getElementById("newt-fix-recheck").addEventListener("click", function () {
@@ -773,7 +807,7 @@ document.getElementById("newt-fix-recheck").addEventListener("click", function (
   loadNewtDockerFix(function (state) {
     btn.disabled = false;
     if (state === "ok") {
-      showFeedback(newtFeedback, "Docker is working now. Click Enable to start Newt.", "success");
+      showFeedback(newtFeedback, msg("newt_docker_ok"), "success");
       loadNewtStatus();
     }
   });
@@ -784,59 +818,55 @@ function enableNewt(force) {
   var endpoint = newtEndpointIn.value.trim();
   var newtId   = newtIdIn.value.trim();
   var secret   = newtSecretIn.value.trim();
-  var hasSaved = newtSecretIn.placeholder.indexOf("Saved") === 0;
+  var hasSaved = newtHasSecret;
 
   if (!/^https?:\/\/[A-Za-z0-9][A-Za-z0-9.\-:\/_]*$/.test(endpoint)) {
-    showFeedback(newtFeedback, "Enter the Pangolin endpoint, e.g. https://pangolin.example.com", "error");
+    showFeedback(newtFeedback, msg("newt_err_endpoint"), "error");
     return;
   }
   if (!/^[A-Za-z0-9]{1,64}$/.test(newtId)) {
-    showFeedback(newtFeedback, "The Newt ID should be letters and numbers only.", "error");
+    showFeedback(newtFeedback, msg("newt_err_id"), "error");
     return;
   }
   if (secret ? !/^[A-Za-z0-9]{1,128}$/.test(secret) : !hasSaved) {
-    showFeedback(newtFeedback, secret ? "The secret should be letters and numbers only." : "Enter the Newt secret.", "error");
+    showFeedback(newtFeedback, msg(secret ? "newt_err_secret_chars" : "newt_err_secret_missing"), "error");
     return;
   }
 
   clearTimeout(newtPollTimer);
-  newtEnableBtn.disabled    = true;
-  newtEnableBtn.textContent = "Enabling...";
-  showFeedback(newtFeedback, "Starting Newt... the first time can take a minute while it downloads.", "");
+  newtEnableBtn.disabled = true;
+  I18N.setText(newtEnableBtn, "common_enabling");
+  showFeedback(newtFeedback, msg("newt_starting"), "");
 
   llamaRequest("POST", "/api/newt/enable",
     { endpoint: endpoint, newt_id: newtId, secret: secret, force: !!force }, 300000,
     function (err, data) {
-      newtEnableBtn.disabled    = false;
-      newtEnableBtn.textContent = "Enable";
+      newtEnableBtn.disabled = false;
+      I18N.setText(newtEnableBtn, "ctrl_newt_enable");
       if (err) { showFeedback(newtFeedback, err, "error"); return; }
 
       if (data.code === "conflict") {
         var list = (data.conflicts || []).map(function (c) {
           return "  • " + c.name + " (" + c.detail + ")";
         }).join("\n");
-        var ok = confirm(
-          "Another copy of Newt is already running on this device:\n\n" + list + "\n\n" +
-          "If it uses the same Pangolin Site, the two will keep disconnecting each other, " +
-          "and anything reached through that tunnel (such as a web SSH session) may drop.\n\n" +
-          "Start Newt anyway?");
+        var ok = confirm(t("newt_conflict_confirm", { list: list }));
         if (ok) enableNewt(true);
-        else showFeedback(newtFeedback, "Not started. Another copy of Newt is running on this device.", "error");
+        else showFeedback(newtFeedback, msg("newt_conflict_cancelled"), "error");
         return;
       }
       if (data.code === "docker_access") {
-        showFeedback(newtFeedback, data.error + " See below for how to fix it.", "error");
+        showFeedback(newtFeedback, msg("newt_docker_access", { error: data.error }), "error");
         loadNewtDockerFix();
         return;
       }
       if (!data.success) {
-        showFeedback(newtFeedback, data.error || "Could not start Newt.", "error");
-        if (data.output) showOutputPopup("Newt — Enable", data.output);
+        showFeedback(newtFeedback, data.error || msg("newt_start_failed"), "error");
+        if (data.output) showOutputPopup(msg("newt_popup_enable"), data.output);
         return;
       }
       newtSecretIn.value = "";
       newtFixBox.hidden  = true;
-      showFeedback(newtFeedback, "Newt started. Waiting for the tunnel to connect...", "");
+      showFeedback(newtFeedback, msg("newt_started_waiting"), "");
       pollNewtStatus(15);
     });
 }
@@ -852,8 +882,8 @@ document.getElementById("newt-disable-btn").addEventListener("click", function (
     btn.disabled = false;
     btn.classList.remove("running");
     if (err)               showFeedback(newtFeedback, err, "error");
-    else if (!data.success) showFeedback(newtFeedback, data.error || "Could not stop Newt.", "error");
-    else                   showFeedback(newtFeedback, "Newt stopped. Your settings are saved for next time.", "success");
+    else if (!data.success) showFeedback(newtFeedback, data.error || msg("newt_stop_failed"), "error");
+    else                   showFeedback(newtFeedback, msg("newt_stopped_msg"), "success");
     if (data && data.code === "docker_access") loadNewtDockerFix();
     loadNewtStatus();
   });
@@ -865,20 +895,21 @@ document.getElementById("newt-status-btn").addEventListener("click", function ()
 });
 
 document.getElementById("newt-logs-btn").addEventListener("click", function () {
-  showOutputPopup("Newt — Logs", "Loading...");
+  showOutputPopup(msg("newt_popup_logs"), msg("common_loading"));
   llamaRequest("GET", "/api/newt/logs", null, 10000, function (err, data) {
     if (err) { setPopupOutput(err); return; }
     setPopupOutput(data.output && data.output.indexOf("No such container") === -1
       ? data.output
-      : "No logs yet. Newt isn't running. Fill in the details above and click Enable.");
+      : msg("newt_no_logs"));
   });
 });
 
 /* Updates: version, daily automatic update, manual update and roll back */
 function formatNewtCheckTime(unixSeconds) {
-  if (!unixSeconds) return "never";
+  if (!unixSeconds) return msg("newt_never");
   var d = new Date(unixSeconds * 1000);
-  return d.toLocaleString([], { dateStyle: "medium", timeStyle: "short" });
+  try { return d.toLocaleString(I18N.lang(), { dateStyle: "medium", timeStyle: "short" }); }
+  catch (e) { return d.toLocaleString(); }
 }
 
 function renderNewtUpdates(data) {
@@ -888,9 +919,11 @@ function renderNewtUpdates(data) {
   newtConfigured = configured;
   setNewtAutoToggleReady(configured);
   newtAutoToggle.checked = configured && data.auto_update !== false;
-  newtUpdateSummary.textContent = configured
-    ? "Last checked: " + formatNewtCheckTime(data.last_check) + (data.last_result ? ". " + data.last_result : "")
-    : "Set up Newt above first. Updates are checked once it is running.";
+  newtLastStatus = data;
+  setMsg(newtUpdateSummary, !configured ? msg("newt_setup_first_updates")
+    : data.last_result
+      ? msg("newt_last_checked_result", { time: formatNewtCheckTime(data.last_check), result: data.last_result })
+      : msg("newt_last_checked", { time: formatNewtCheckTime(data.last_check) }));
 
   if (newtUpdateBusy) return;
   newtCheckBtn.disabled    = !configured;
@@ -903,33 +936,42 @@ function renderNewtUpdates(data) {
 function setNewtAutoToggleReady(ready) {
   newtAutoToggle.disabled = !ready;
   newtAutoToggle.closest(".newt-auto").classList.toggle("not-ready", !ready);
-  newtAutoToggle.closest(".newt-auto").title = ready ? "" : "Set up Newt above first.";
+  var wrap = newtAutoToggle.closest(".newt-auto");
+  if (ready) { wrap.removeAttribute("data-i18n-title"); wrap.title = ""; }
+  else       { wrap.setAttribute("data-i18n-title", "newt_setup_first"); wrap.title = t("newt_setup_first"); }
   if (!ready) newtAutoToggle.checked = false;
 }
 
-function setNewtUpdateBusy(busy, btn, label) {
+// labelKey: translation key shown on btn while busy
+function setNewtUpdateBusy(busy, btn, labelKey) {
   newtUpdateBusy = busy;
   [newtCheckBtn, newtUpdateBtn, newtRollbackBtn].forEach(function (b) { b.disabled = busy; });
-  if (busy) { btn.dataset.label = btn.textContent; btn.textContent = label; btn.classList.add("running"); }
-  else      { btn.textContent = btn.dataset.label || btn.textContent; btn.classList.remove("running"); }
+  if (busy) {
+    btn.dataset.idleKey = btn.getAttribute("data-i18n") || "";
+    I18N.setText(btn, labelKey);
+    btn.classList.add("running");
+  } else {
+    if (btn.dataset.idleKey) I18N.setText(btn, btn.dataset.idleKey);
+    btn.classList.remove("running");
+  }
 }
 
 // Runs one update action and shows its result. The tunnel may drop while
 // Newt restarts; if this page is open through Pangolin it may lose the reply,
 // but the backend finishes (and rolls back if needed) on its own.
-function runNewtUpdateAction(path, btn, busyLabel, waitingText) {
-  setNewtUpdateBusy(true, btn, busyLabel);
-  showFeedback(newtUpdateFeedback, waitingText, "");
+function runNewtUpdateAction(path, btn, busyKey, waitingKey) {
+  setNewtUpdateBusy(true, btn, busyKey);
+  showFeedback(newtUpdateFeedback, msg(waitingKey), "");
   llamaRequest("POST", path, null, 600000, function (err, data) {
     setNewtUpdateBusy(false, btn);
     if (err) {
-      showFeedback(newtUpdateFeedback, err + " If you opened this page through the tunnel, reload it in a minute.", "error");
+      showFeedback(newtUpdateFeedback, msg("newt_update_err_tunnel", { error: err }), "error");
     } else if (data.code === "docker_access") {
       showFeedback(newtUpdateFeedback, data.error, "error");
       loadNewtDockerFix();
     } else if (!data.success) {
-      showFeedback(newtUpdateFeedback, data.error || "Something went wrong.", "error");
-      if (data.output && data.code !== "rolled_back") showOutputPopup("Newt — Update", data.output);
+      showFeedback(newtUpdateFeedback, data.error || msg("common_something_wrong"), "error");
+      if (data.output && data.code !== "rolled_back") showOutputPopup(msg("newt_popup_update"), data.output);
     } else {
       showFeedback(newtUpdateFeedback, data.output, "success");
     }
@@ -938,27 +980,24 @@ function runNewtUpdateAction(path, btn, busyLabel, waitingText) {
 }
 
 newtCheckBtn.addEventListener("click", function () {
-  runNewtUpdateAction("/api/newt/update/check", newtCheckBtn, "Checking...",
-    "Downloading the latest Newt image to compare. This can take a minute.");
+  runNewtUpdateAction("/api/newt/update/check", newtCheckBtn, "newt_checking", "newt_check_waiting");
 });
 
 newtUpdateBtn.addEventListener("click", function () {
-  if (!confirm("Update Newt now?\n\nNewt restarts, so the tunnel drops for a few seconds. " +
-               "If the new version doesn't reconnect within a minute, the previous version is put back automatically.")) return;
-  runNewtUpdateAction("/api/newt/update", newtUpdateBtn, "Updating...",
-    "Updating Newt and waiting for the tunnel to reconnect (up to a minute)...");
+  if (!confirm(t("newt_update_confirm"))) return;
+  runNewtUpdateAction("/api/newt/update", newtUpdateBtn, "newt_updating", "newt_update_waiting");
 });
 
 newtRollbackBtn.addEventListener("click", function () {
-  if (!confirm("Go back to the previous version of Newt?\n\nThe tunnel drops for a few seconds while Newt restarts.")) return;
-  runNewtUpdateAction("/api/newt/rollback", newtRollbackBtn, "Rolling back...", "Restarting Newt on the previous version...");
+  if (!confirm(t("newt_rollback_confirm"))) return;
+  runNewtUpdateAction("/api/newt/rollback", newtRollbackBtn, "newt_rolling_back", "newt_rollback_waiting");
 });
 
 newtAutoToggle.addEventListener("change", function () {
   var enabled = newtAutoToggle.checked;
   if (enabled && !newtConfigured) {
     setNewtAutoToggleReady(false);
-    showFeedback(newtUpdateFeedback, "Set up Newt above first, then turn on automatic updates.", "error");
+    showFeedback(newtUpdateFeedback, msg("newt_auto_setup_first"), "error");
     return;
   }
   newtAutoToggle.disabled = true;
@@ -966,7 +1005,7 @@ newtAutoToggle.addEventListener("change", function () {
     newtAutoToggle.disabled = false;
     if (err || !data.success) {
       newtAutoToggle.checked = !enabled;
-      showFeedback(newtUpdateFeedback, err || data.error || "Could not change the setting.", "error");
+      showFeedback(newtUpdateFeedback, err || data.error || msg("newt_auto_change_failed"), "error");
       // Newt was removed in another tab or session: lock the switch again
       if (data && data.code === "not_configured") loadNewtStatus();
       return;
@@ -976,40 +1015,41 @@ newtAutoToggle.addEventListener("change", function () {
 });
 
 /* ── SHARED FEEDBACK HELPER ── */
-function showFeedback(el, msg, type) {
-  el.textContent = msg;
-  el.className   = "control-feedback" + (type ? " " + type : "");
+// message: a plain string (e.g. from the backend) or msg(key, params)
+function showFeedback(el, message, type) {
+  setMsg(el, message);
+  el.className = "control-feedback" + (type ? " " + type : "");
 }
 
 /* ── REBOOT / SHUTDOWN ── */
 document.getElementById("btn-reboot").addEventListener("click", function () {
-  if (confirm("Are you sure you want to reboot the device?")) {
-    showOutputPopup("Reboot", "Sending reboot command...");
+  if (confirm(t("reboot_confirm"))) {
+    showOutputPopup(msg("btn_reboot"), msg("reboot_sending"));
     var xhr = new XMLHttpRequest();
     xhr.open("POST", API_BASE + "/api/command", true);
     xhr.setRequestHeader("Content-Type", "application/json");
     xhr.timeout = 8000;
     xhr.onload = function () {
-      try { setPopupOutput(JSON.parse(xhr.responseText).output || "Rebooting..."); }
-      catch (e) { setPopupOutput("Reboot command sent."); }
+      try { setPopupOutput(JSON.parse(xhr.responseText).output || msg("reboot_rebooting")); }
+      catch (e) { setPopupOutput(msg("reboot_sent")); }
     };
-    xhr.onerror = function () { setPopupOutput("Reboot command sent (connection lost)."); };
+    xhr.onerror = function () { setPopupOutput(msg("reboot_sent_lost")); };
     xhr.send(JSON.stringify({ command: "reboot" }));
   }
 });
 
 document.getElementById("btn-shutdown").addEventListener("click", function () {
-  if (confirm("Are you sure you want to shut down the device? You will need physical access to turn it back on.")) {
-    showOutputPopup("Shutdown", "Sending shutdown command...");
+  if (confirm(t("shutdown_confirm"))) {
+    showOutputPopup(msg("btn_shutdown"), msg("shutdown_sending"));
     var xhr = new XMLHttpRequest();
     xhr.open("POST", API_BASE + "/api/command", true);
     xhr.setRequestHeader("Content-Type", "application/json");
     xhr.timeout = 8000;
     xhr.onload = function () {
-      try { setPopupOutput(JSON.parse(xhr.responseText).output || "Shutting down..."); }
-      catch (e) { setPopupOutput("Shutdown command sent."); }
+      try { setPopupOutput(JSON.parse(xhr.responseText).output || msg("shutdown_shutting_down")); }
+      catch (e) { setPopupOutput(msg("shutdown_sent")); }
     };
-    xhr.onerror = function () { setPopupOutput("Shutdown command sent (connection lost)."); };
+    xhr.onerror = function () { setPopupOutput(msg("shutdown_sent_lost")); };
     xhr.send(JSON.stringify({ command: "shutdown" }));
   }
 });
@@ -1026,27 +1066,27 @@ document.querySelectorAll(".docker-btn").forEach(function (btn) {
     var name      = document.getElementById("container-input").value.trim();
 
     if (needsName && !name) {
-      showFeedback(dockerFeedback, "Please enter a container name.", "error");
+      showFeedback(dockerFeedback, msg("docker_err_name"), "error");
       document.getElementById("container-input").focus();
       return;
     }
 
-    if (needsConfirm && !confirm("Remove container \"" + name + "\"? This cannot be undone.")) {
+    if (needsConfirm && !confirm(t("docker_remove_confirm", { name: name }))) {
       return;
     }
 
     showFeedback(dockerFeedback, "", "");
-    runDockerCommand(command, needsName ? name : "");
+    runDockerCommand(command, needsName ? name : "", btn.textContent.trim());
   });
 });
 
-function runDockerCommand(command, param) {
+function runDockerCommand(command, param, label) {
   document.querySelectorAll(".docker-btn").forEach(function (b) {
     b.classList.add("running");
     b.disabled = true;
   });
 
-  dockerOutput.textContent = "Running: " + command + (param ? " " + param : "") + "...\n";
+  I18N.setText(dockerOutput, "output_running_cmd", { command: (label || command) + (param ? " " + param : "") });
 
   var xhr = new XMLHttpRequest();
   xhr.open("POST", API_BASE + "/api/command", true);
@@ -1056,15 +1096,15 @@ function runDockerCommand(command, param) {
   xhr.onload = function () {
     try {
       var data = JSON.parse(xhr.responseText);
-      dockerOutput.textContent = data.output || data.message || xhr.responseText;
+      setMsg(dockerOutput, data.output || data.message || xhr.responseText);
     } catch (e) {
-      dockerOutput.textContent = xhr.responseText;
+      setMsg(dockerOutput, xhr.responseText);
     }
     resetDockerButtons();
   };
 
-  xhr.onerror   = function () { dockerOutput.textContent = "Error: Could not reach the backend."; resetDockerButtons(); };
-  xhr.ontimeout = function () { dockerOutput.textContent = "Error: Request timed out."; resetDockerButtons(); };
+  xhr.onerror   = function () { I18N.setText(dockerOutput, "err_backend_unreachable"); resetDockerButtons(); };
+  xhr.ontimeout = function () { I18N.setText(dockerOutput, "err_timeout");             resetDockerButtons(); };
 
   var payload = { command: command };
   if (param) payload.param = param;
@@ -1079,7 +1119,7 @@ function resetDockerButtons() {
 }
 
 document.getElementById("clear-docker-output").addEventListener("click", function () {
-  dockerOutput.textContent = "Docker output will appear here...";
+  I18N.setText(dockerOutput, "docker_output_placeholder");
 });
 
 /* ── RUN CONTAINER FORM ── */
@@ -1091,6 +1131,7 @@ function makeDynamicRow(list, innerHtml) {
   var row = document.createElement("div");
   row.className = "dynamic-row";
   row.innerHTML = innerHtml;
+  I18N.apply(row);   // fill in data-i18n-* placeholders / labels
   row.querySelector(".remove-btn").addEventListener("click", function () {
     list.removeChild(row);
   });
@@ -1098,37 +1139,39 @@ function makeDynamicRow(list, innerHtml) {
   return row;
 }
 
+var REMOVE_BTN_HTML = '<button class="remove-btn" type="button" data-i18n-aria-label="common_remove">&times;</button>';
+
 document.getElementById("add-port-btn").addEventListener("click", function () {
   var list = document.getElementById("port-list");
   makeDynamicRow(list,
-    '<input class="text-input" type="text" placeholder="8080" maxlength="5" />' +
+    '<input class="text-input" type="text" placeholder="8080" maxlength="5" data-i18n-aria-label="docker_port_host_aria" />' +
     '<span class="row-sep">:</span>' +
-    '<input class="text-input" type="text" placeholder="80" maxlength="5" />' +
-    '<button class="remove-btn" type="button" aria-label="Remove">&times;</button>'
+    '<input class="text-input" type="text" placeholder="80" maxlength="5" data-i18n-aria-label="docker_port_container_aria" />' +
+    REMOVE_BTN_HTML
   );
 });
 
 document.getElementById("add-volume-btn").addEventListener("click", function () {
   var list = document.getElementById("volume-list");
   makeDynamicRow(list,
-    '<input class="text-input" type="text" placeholder="/host/path" />' +
+    '<input class="text-input" type="text" data-i18n-placeholder="docker_volume_host_placeholder" />' +
     '<span class="row-sep">:</span>' +
-    '<input class="text-input" type="text" placeholder="/container/path" />' +
-    '<select class="select-input select-input--narrow">' +
+    '<input class="text-input" type="text" data-i18n-placeholder="docker_volume_container_placeholder" />' +
+    '<select class="select-input select-input--narrow" data-i18n-aria-label="docker_volume_mode_aria">' +
       '<option value="">rw</option>' +
       '<option value="ro">ro</option>' +
     '</select>' +
-    '<button class="remove-btn" type="button" aria-label="Remove">&times;</button>'
+    REMOVE_BTN_HTML
   );
 });
 
 document.getElementById("add-env-btn").addEventListener("click", function () {
   var list = document.getElementById("env-list");
   makeDynamicRow(list,
-    '<input class="text-input" type="text" placeholder="KEY" />' +
+    '<input class="text-input" type="text" placeholder="KEY" data-i18n-aria-label="docker_env_key_aria" />' +
     '<span class="row-sep">=</span>' +
-    '<input class="text-input" type="text" placeholder="value" />' +
-    '<button class="remove-btn" type="button" aria-label="Remove">&times;</button>'
+    '<input class="text-input" type="text" data-i18n-placeholder="docker_env_value_placeholder" />' +
+    REMOVE_BTN_HTML
   );
 });
 
@@ -1137,7 +1180,7 @@ document.getElementById("add-env-btn").addEventListener("click", function () {
 document.getElementById("run-container-btn").addEventListener("click", function () {
   var image = document.getElementById("run-image").value.trim();
   if (!image) {
-    showFeedback(runFeedback, "Image name is required.", "error");
+    showFeedback(runFeedback, msg("docker_err_image"), "error");
     document.getElementById("run-image").focus();
     return;
   }
@@ -1184,11 +1227,10 @@ document.getElementById("run-container-btn").addEventListener("click", function 
 
 function submitRunContainer(payload) {
   var btn = document.getElementById("run-container-btn");
-  btn.disabled    = true;
-  btn.textContent = "Pulling & starting...";
+  btn.disabled = true;
+  I18N.setText(btn, "docker_pulling");
   showFeedback(runFeedback, "", "");
-  dockerOutput.textContent = "Running: docker run " + payload.image + "...\n" +
-                             "This may take a while if the image needs to be pulled.\n";
+  I18N.setText(dockerOutput, "docker_run_output_start", { image: payload.image });
 
   var xhr = new XMLHttpRequest();
   xhr.open("POST", API_BASE + "/api/docker/run", true);
@@ -1199,34 +1241,33 @@ function submitRunContainer(payload) {
     try {
       var data = JSON.parse(xhr.responseText);
       if (data.status === "ok") {
-        dockerOutput.textContent = data.output || "[ok] Container started.";
-        showFeedback(runFeedback, "Container started successfully.", "success");
+        setMsg(dockerOutput, data.output || msg("docker_started_default"));
+        showFeedback(runFeedback, msg("docker_started"), "success");
       } else {
         // Show the summary AND Docker's own message (e.g. "name already in use"), not just the exit code
-        dockerOutput.textContent = [data.error, data.output].filter(Boolean).join("\n\n") || xhr.responseText;
-        showFeedback(runFeedback, data.error || "Failed to start container.", "error");
+        setMsg(dockerOutput, [data.error, data.output].filter(Boolean).join("\n\n") || xhr.responseText);
+        showFeedback(runFeedback, data.error || msg("docker_start_failed"), "error");
       }
     } catch (e) {
-      dockerOutput.textContent = xhr.responseText;
-      showFeedback(runFeedback, "Unexpected response from backend.", "error");
+      setMsg(dockerOutput, xhr.responseText);
+      showFeedback(runFeedback, msg("err_unexpected"), "error");
     }
-    btn.disabled    = false;
-    btn.textContent = "Run Container";
+    btn.disabled = false;
+    I18N.setText(btn, "docker_run_btn");
   };
 
   xhr.onerror = function () {
-    dockerOutput.textContent = "Error: Could not reach the backend.";
-    showFeedback(runFeedback, "Could not reach the backend.", "error");
-    btn.disabled    = false;
-    btn.textContent = "Run Container";
+    I18N.setText(dockerOutput, "err_backend_unreachable");
+    showFeedback(runFeedback, msg("docker_unreachable"), "error");
+    btn.disabled = false;
+    I18N.setText(btn, "docker_run_btn");
   };
 
   xhr.ontimeout = function () {
-    dockerOutput.textContent = "Request timed out — the image may still be pulling in the background.\n" +
-                               "Use List Containers to check if it started.";
-    showFeedback(runFeedback, "Request timed out.", "error");
-    btn.disabled    = false;
-    btn.textContent = "Run Container";
+    I18N.setText(dockerOutput, "docker_timeout_output");
+    showFeedback(runFeedback, msg("docker_timeout"), "error");
+    btn.disabled = false;
+    I18N.setText(btn, "docker_run_btn");
   };
 
   xhr.send(JSON.stringify(payload));
@@ -1242,13 +1283,20 @@ var llamaModelFeedback  = document.getElementById("llama-model-feedback");
 var llamaInstalledList  = document.getElementById("llama-installed-list");
 var llamaInstalledEmpty = document.getElementById("llama-installed-empty");
 var llamaInstalledFeedback = document.getElementById("llama-installed-feedback");
+var llamaRecList        = document.getElementById("llama-recommended-list");
+var llamaRecEmpty       = document.getElementById("llama-recommended-empty");
+var llamaRecFeedback    = document.getElementById("llama-recommended-feedback");
 
 var llamaRunning     = false;
 var llamaSelected    = "";   // filename of the model chosen in Installed models
 var llamaDownloading = "";   // filename being downloaded — hidden from the list until complete
+var llamaInstalled   = [];   // filenames from the last /api/llama/models response
+var llamaRecommended = null; // entries from llama-models.json (null until loaded)
 
 // Small wrapper: every Llama endpoint returns JSON, so parse it once here.
-// cb(errorMessage, data, httpStatus) — errorMessage is null when the body parsed.
+// cb(error, data, httpStatus, errorCode)
+//   error     — null when the body parsed, otherwise msg(key) ready to display
+//   errorCode — "parse" | "network" | "timeout" (null on success)
 function llamaRequest(method, path, body, timeout, cb) {
   var xhr = new XMLHttpRequest();
   xhr.open(method, API_BASE + path, true);
@@ -1257,35 +1305,37 @@ function llamaRequest(method, path, body, timeout, cb) {
   xhr.onload = function () {
     var data = null;
     try { data = JSON.parse(xhr.responseText); } catch (e) {}
-    cb(data === null ? "Unexpected response from backend." : null, data, xhr.status);
+    if (data === null) cb(msg("err_unexpected"), null, xhr.status, "parse");
+    else               cb(null, data, xhr.status, null);
   };
-  xhr.onerror   = function () { cb("Error: Could not reach backend."); };
-  xhr.ontimeout = function () { cb("Error: Request timed out."); };
+  xhr.onerror   = function () { cb(msg("err_backend_unreachable"), null, 0, "network"); };
+  xhr.ontimeout = function () { cb(msg("err_timeout"), null, 0, "timeout"); };
   xhr.send(body ? JSON.stringify(body) : null);
 }
 
-function setLlamaBadge(text, cls) {
-  llamaBadge.textContent = text;
-  llamaBadge.className   = "service-badge " + cls;
+// key: badge_* translation key
+function setLlamaBadge(key, cls) {
+  I18N.setText(llamaBadge, key);
+  llamaBadge.className = "service-badge " + cls;
 }
 
 function setLlamaRunning(running) {
   llamaRunning        = running;
   llamaToggle.checked = running;
   llamaToggle.disabled = false;
-  setLlamaBadge(running ? "running" : "stopped", running ? "badge-active" : "badge-inactive");
+  setLlamaBadge(running ? "badge_running" : "badge_stopped", running ? "badge-active" : "badge-inactive");
 
   // The model can't be swapped while llama-server has one loaded
   llamaInstalledList.querySelectorAll(".model-row").forEach(function (row) {
     row.classList.toggle("disabled", running);
     row.querySelector("input").disabled = running;
   });
-  showFeedback(llamaInstalledFeedback, running && llamaSelected ? "Turn Llama off to switch models." : "", "");
+  showFeedback(llamaInstalledFeedback, running && llamaSelected ? msg("llama_switch_off_to_change") : "", "");
 }
 
 function loadLlamaStatus(cb) {
   llamaRequest("GET", "/api/llama/status", null, 5000, function (err, data) {
-    if (err) { setLlamaBadge("unknown", "badge-neutral"); }
+    if (err) { setLlamaBadge("badge_unknown", "badge-neutral"); }
     else     { setLlamaRunning(!!data.running); }
     if (cb) cb(err ? null : !!data.running);
   });
@@ -1294,10 +1344,108 @@ function loadLlamaStatus(cb) {
 function loadLlamaModels() {
   llamaRequest("GET", "/api/llama/models", null, 5000, function (err, data) {
     if (err || !Array.isArray(data)) {
-      showFeedback(llamaInstalledFeedback, err || "Could not load installed models.", "error");
+      showFeedback(llamaInstalledFeedback, err || msg("llama_models_load_fail"), "error");
       return;
     }
-    renderLlamaModels(data.filter(function (m) { return m !== llamaDownloading; }));
+    llamaInstalled = data.filter(function (m) { return m !== llamaDownloading; });
+    renderLlamaModels(llamaInstalled);
+    renderLlamaRecommended();
+  });
+}
+
+/* Recommended models — models tested on the Xerxes Pi. The list is a static
+   file, public/llama-models.json, so adding a model needs no code change:
+     { "name": "...", "url": "https://huggingface.co/.../resolve/main/x.gguf",
+       "size": "491 MB", "note": { "en": "...", "es": "...", ... } }
+   "size" and "note" are optional; a note falls back to English. */
+function modelFilename(url) { return url.substring(url.lastIndexOf("/") + 1); }
+
+function isValidModelUrl(url) {
+  return url.indexOf("https://huggingface.co/") === 0 && url.indexOf("/resolve/") !== -1 && /\.gguf$/i.test(url);
+}
+
+function loadLlamaRecommended() {
+  if (llamaRecommended) { renderLlamaRecommended(); return; }
+  var xhr = new XMLHttpRequest();
+  xhr.open("GET", "/llama-models.json", true);
+  xhr.setRequestHeader("Cache-Control", "no-cache");   // pick up newly added models
+  xhr.timeout = 8000;
+  function fail() {
+    llamaRecList.hidden  = true;
+    llamaRecEmpty.hidden = true;
+    showFeedback(llamaRecFeedback, msg("llama_recommended_load_fail"), "error");
+  }
+  xhr.onload = function () {
+    var data = null;
+    try { data = JSON.parse(xhr.responseText); } catch (e) {}
+    if (xhr.status !== 200 || !data || !Array.isArray(data.models)) { fail(); return; }
+    llamaRecommended = data.models.filter(function (m) {
+      if (!m || typeof m.name !== "string") return false;
+      m.url = normaliseModelUrl(String(m.url || ""));
+      if (!isValidModelUrl(m.url)) { console.warn("llama-models.json: skipping bad url for " + m.name); return false; }
+      return true;
+    });
+    showFeedback(llamaRecFeedback, "", "");
+    renderLlamaRecommended();
+  };
+  xhr.onerror = fail;
+  xhr.ontimeout = fail;
+  xhr.send();
+}
+
+function recNote(note) {
+  if (!note) return "";
+  if (typeof note === "string") return note;
+  return note[I18N.lang()] || note.en || "";
+}
+
+function renderLlamaRecommended() {
+  if (!llamaRecommended) return;
+  llamaRecList.textContent = "";
+  llamaRecList.hidden  = llamaRecommended.length === 0;
+  llamaRecEmpty.hidden = llamaRecommended.length > 0;
+  if (llamaRecommended.length === 0) { I18N.setText(llamaRecEmpty, "llama_recommended_empty"); return; }
+
+  llamaRecommended.forEach(function (m) {
+    var file = modelFilename(m.url);
+    var row  = document.createElement("div");
+    row.className = "rec-model-row";
+
+    var info = document.createElement("div");
+    info.className = "rec-model-info";
+    var name = document.createElement("div");
+    name.className   = "rec-model-name";
+    name.textContent = m.name;
+    var meta = document.createElement("div");
+    meta.className   = "rec-model-meta";
+    meta.textContent = file + (m.size ? " · " + m.size : "");
+    info.appendChild(name);
+    info.appendChild(meta);
+    var noteText = recNote(m.note);
+    if (noteText) {
+      var note = document.createElement("div");
+      note.className   = "rec-model-note";
+      note.textContent = noteText;
+      info.appendChild(note);
+    }
+    row.appendChild(info);
+
+    if (llamaInstalled.indexOf(file) !== -1) {
+      var badge = document.createElement("span");
+      badge.className = "service-badge badge-active";
+      I18N.setText(badge, "llama_recommended_installed");
+      row.appendChild(badge);
+    } else {
+      var btn = document.createElement("button");
+      btn.className = "action-btn";
+      btn.disabled  = !!llamaDownloading;   // one download at a time
+      I18N.setText(btn, llamaDownloading === file ? "common_downloading" : "ctrl_llama_download_btn");
+      btn.addEventListener("click", function () {
+        downloadLlamaModel(m.url, llamaRecFeedback);
+      });
+      row.appendChild(btn);
+    }
+    llamaRecList.appendChild(row);
   });
 }
 
@@ -1337,32 +1485,29 @@ function startLlama() {
   var model = llamaSelected;
   if (!model) {
     llamaToggle.checked = false;
-    showFeedback(llamaEnableFeedback, "Download a model first, then try again.", "error");
+    showFeedback(llamaEnableFeedback, msg("llama_need_model"), "error");
     return;
   }
 
   llamaToggle.disabled = true;
-  setLlamaBadge("starting", "badge-neutral");
-  showFeedback(llamaEnableFeedback, "Starting with " + model + "...", "");
+  setLlamaBadge("badge_starting", "badge-neutral");
+  showFeedback(llamaEnableFeedback, msg("llama_starting_with", { model: model }), "");
 
   llamaRequest("POST", "/api/llama/enable", { model: model }, 15000, function (err, data) {
     if (err || !data.success) {
-      showFeedback(llamaEnableFeedback, err || data.error || "Failed to start Llama.", "error");
+      showFeedback(llamaEnableFeedback, err || data.error || msg("llama_start_failed"), "error");
       loadLlamaStatus();
       return;
     }
     setLlamaRunning(true);
-    showFeedback(llamaEnableFeedback,
-      "Loading " + model + ". Small models are ready in a few seconds; larger ones can take a minute.", "success");
+    showFeedback(llamaEnableFeedback, msg("llama_loading", { model: model }), "success");
 
     // llama-server exits quickly if the model doesn't fit in memory or the
     // binary is missing — catch that rather than leaving the toggle on.
     setTimeout(function () {
       loadLlamaStatus(function (running) {
         if (running === false) {
-          showFeedback(llamaEnableFeedback,
-            "Llama stopped right after starting. The model may be too large for this device's memory, " +
-            "or llama-server hasn't been built yet (run make llama).", "error");
+          showFeedback(llamaEnableFeedback, msg("llama_stopped_early"), "error");
         }
       });
     }, 4000);
@@ -1371,8 +1516,8 @@ function startLlama() {
 
 function stopLlama() {
   llamaToggle.disabled = true;
-  setLlamaBadge("stopping", "badge-neutral");
-  showFeedback(llamaEnableFeedback, "Stopping...", "");
+  setLlamaBadge("badge_stopping", "badge-neutral");
+  showFeedback(llamaEnableFeedback, msg("common_stopping"), "");
 
   // The backend waits up to 5 s for llama-server to exit cleanly
   llamaRequest("POST", "/api/llama/disable", null, 10000, function (err) {
@@ -1382,7 +1527,7 @@ function stopLlama() {
       return;
     }
     setLlamaRunning(false);
-    showFeedback(llamaEnableFeedback, "Llama stopped. Its memory has been freed.", "success");
+    showFeedback(llamaEnableFeedback, msg("llama_stopped"), "success");
   });
 }
 
@@ -1399,46 +1544,52 @@ llamaDownloadBtn.addEventListener("click", function () {
   var url = normaliseModelUrl(llamaUrlInput.value);
 
   if (!url) {
-    showFeedback(llamaModelFeedback, "Paste a Hugging Face download link first.", "error");
+    showFeedback(llamaModelFeedback, msg("llama_err_no_url"), "error");
     llamaUrlInput.focus();
     return;
   }
-  if (url.indexOf("https://huggingface.co/") !== 0 || url.indexOf("/resolve/") === -1 || !/\.gguf$/i.test(url)) {
-    showFeedback(llamaModelFeedback,
-      "Use the link to a .gguf file, like https://huggingface.co/<user>/<repo>/resolve/main/<file>.gguf", "error");
+  if (!isValidModelUrl(url)) {
+    showFeedback(llamaModelFeedback, msg("llama_err_bad_url"), "error");
     llamaUrlInput.focus();
     return;
   }
 
-  var filename = url.substring(url.lastIndexOf("/") + 1);
   llamaUrlInput.value = url;
-  llamaDownloading    = filename;
-  llamaDownloadBtn.disabled    = true;
-  llamaDownloadBtn.textContent = "Downloading...";
-  showFeedback(llamaModelFeedback,
-    "Downloading " + filename + ". Large models can take several minutes — keep this tab open to see the result.", "");
+  downloadLlamaModel(url, llamaModelFeedback, function () { llamaUrlInput.value = ""; });
+});
+
+// Shared by the Model source box and the Recommended models list.
+// feedbackEl: where progress/result messages go; onSuccess: optional extra step.
+function downloadLlamaModel(url, feedbackEl, onSuccess) {
+  if (llamaDownloading) return;   // one download at a time
+  var filename = modelFilename(url);
+  llamaDownloading = filename;
+  llamaDownloadBtn.disabled = true;
+  I18N.setText(llamaDownloadBtn, "common_downloading");
+  renderLlamaRecommended();
+  showFeedback(feedbackEl, msg("llama_downloading_msg", { file: filename }), "");
 
   function finish() {
     llamaDownloading = "";
-    llamaDownloadBtn.disabled    = false;
-    llamaDownloadBtn.textContent = "Download";
+    llamaDownloadBtn.disabled = false;
+    I18N.setText(llamaDownloadBtn, "ctrl_llama_download_btn");
+    renderLlamaRecommended();
     loadLlamaModels();
   }
 
-  llamaRequest("POST", "/api/llama/download", { url: url }, 3600000, function (err, data) {
-    if (err === "Error: Request timed out.") {
-      showFeedback(llamaModelFeedback,
-        "Still downloading after an hour. The device keeps going in the background — check Installed models later.", "error");
+  llamaRequest("POST", "/api/llama/download", { url: url }, 3600000, function (err, data, status, code) {
+    if (code === "timeout") {
+      showFeedback(feedbackEl, msg("llama_still_downloading"), "error");
     } else if (err || !data.success) {
-      showFeedback(llamaModelFeedback, err || data.error || "Download failed.", "error");
+      showFeedback(feedbackEl, err || data.error || msg("llama_download_failed"), "error");
     } else {
-      showFeedback(llamaModelFeedback, "Downloaded " + filename + ".", "success");
-      llamaUrlInput.value = "";
+      showFeedback(feedbackEl, msg("llama_downloaded", { file: filename }), "success");
+      if (onSuccess) onSuccess();
       if (!llamaRunning) llamaSelected = filename;
     }
     finish();
   });
-});
+}
 
 /* ── ASK XERXES AI (chat panel) ──
    Lives outside the tab sections, so it stays open and keeps the
@@ -1456,6 +1607,12 @@ var chatDot      = document.getElementById("chat-status-dot");
 var CHAT_SYSTEM_PROMPT =
   "You are Xerxes Assistant, built into the Xerxes Pi admin panel on a Raspberry Pi " +
   "compute module. Help the user manage and understand their device. Keep answers short and practical.";
+
+// The prompt stays in English (small models follow English instructions best);
+// only the reply language follows the panel's language.
+function chatSystemPrompt() {
+  return CHAT_SYSTEM_PROMPT + " " + "Reply in " + I18N.languageName() + " (" + I18N.lang() + ").";
+}
 var CHAT_MAX_HISTORY = 10;   // messages sent back to the model; its context is only 4096 tokens
 var chatHistory = [];        // { role, content } — excludes the greeting and failed turns
 var chatBusy    = false;
@@ -1485,7 +1642,9 @@ document.addEventListener("keydown", function (e) {
 
 function setChatDot(running) {
   chatDot.className = "chat-status-dot" + (running === true ? " on" : running === false ? " off" : "");
-  chatDot.title = running === true ? "Llama is running" : running === false ? "Llama is off" : "Llama status unknown";
+  var key = running === true ? "chat_dot_running" : running === false ? "chat_dot_off" : "chat_dot_unknown";
+  chatDot.setAttribute("data-i18n-title", key);
+  chatDot.title = t(key);
 }
 
 function refreshChatStatus() {
@@ -1506,7 +1665,8 @@ function appendChatMessage(cls, text) {
 function appendChatTyping() {
   var el = document.createElement("div");
   el.className = "chat-msg assistant typing";
-  el.setAttribute("aria-label", "Assistant is typing");
+  el.setAttribute("data-i18n-aria-label", "chat_typing_aria");
+  el.setAttribute("aria-label", t("chat_typing_aria"));
   for (var i = 0; i < 3; i++) el.appendChild(document.createElement("span"));
   chatMessages.appendChild(el);
   chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -1515,11 +1675,11 @@ function appendChatTyping() {
 
 // Error bubble; when Llama is off, include a button that jumps to the Llama tab.
 function appendChatError(text, showLlamaLink) {
-  var el = appendChatMessage("error", text);
+  var el = appendChatMessage("error", msgText(text));
   if (showLlamaLink) {
     var btn = document.createElement("button");
     btn.type = "button";
-    btn.textContent = "Open Llama settings";
+    I18N.setText(btn, "chat_open_llama");
     btn.addEventListener("click", function () {
       closeChat();
       document.querySelector('.nav-link[data-section="llama"]').click();
@@ -1531,18 +1691,16 @@ function appendChatError(text, showLlamaLink) {
 
 // Turns backend / llama-server failures into something the user can act on.
 // Returns { text, llamaOff }.
-function describeChatError(err, data, status) {
-  if (err === "Error: Request timed out.")
-    return { text: "No reply after 3 minutes. The model may be too large for this device. Try a shorter question or a smaller model." };
-  if (err === "Error: Could not reach backend.")
-    return { text: "Could not reach the backend. Check the panel is still online." };
+function describeChatError(err, data, status, code) {
+  if (code === "timeout") return { text: msg("chat_err_timeout") };
+  if (code === "network") return { text: msg("chat_err_backend") };
 
-  var msg = data && data.error ? (typeof data.error === "string" ? data.error : data.error.message || "") : "";
-  if (msg.indexOf("not running") !== -1)
-    return { text: "Llama is turned off. Turn it on in the Llama tab, then send your message again.", llamaOff: true };
-  if (status === 503 || msg.indexOf("not reachable") !== -1 || /loading/i.test(msg))
-    return { text: "The model is still loading. Try again in a few seconds." };
-  return { text: msg || "The model returned an error (HTTP " + status + ")." };
+  var detail = data && data.error ? (typeof data.error === "string" ? data.error : data.error.message || "") : "";
+  if (detail.indexOf("not running") !== -1)
+    return { text: msg("chat_err_llama_off"), llamaOff: true };
+  if (status === 503 || detail.indexOf("not reachable") !== -1 || /loading/i.test(detail))
+    return { text: msg("chat_err_loading") };
+  return { text: detail || msg("chat_err_http", { status: status }) };
 }
 
 function setChatBusy(busy) {
@@ -1561,19 +1719,19 @@ chatForm.addEventListener("submit", function (e) {
   setChatBusy(true);
   var typing = appendChatTyping();
 
-  var messages = [{ role: "system", content: CHAT_SYSTEM_PROMPT }]
+  var messages = [{ role: "system", content: chatSystemPrompt() }]
     .concat(chatHistory.slice(-CHAT_MAX_HISTORY));
 
   // Generation on a Pi is slow — allow up to 3 minutes for a reply
   llamaRequest("POST", "/api/llama/v1/chat/completions",
                { messages: messages, max_tokens: 512 }, 180000,
-               function (err, data, status) {
+               function (err, data, status, code) {
     typing.remove();
     var choice = !err && data && data.choices && data.choices[0];
     var reply  = choice && choice.message ? choice.message.content : null;
 
     if (typeof reply === "string") {
-      reply = reply.trim() || "(The model returned an empty reply.)";
+      reply = reply.trim() || t("chat_empty_reply");
       chatHistory.push({ role: "assistant", content: reply });
       appendChatMessage("assistant", reply);
       setChatDot(true);
@@ -1581,7 +1739,7 @@ chatForm.addEventListener("submit", function (e) {
       // Drop the failed turn from history and hand the text back for a retry
       chatHistory.pop();
       if (!chatInput.value) chatInput.value = text;
-      var problem = describeChatError(err, data, status);
+      var problem = describeChatError(err, data, status, code);
       appendChatError(problem.text, problem.llamaOff);
       if (problem.llamaOff) setChatDot(false);
     }
@@ -1621,7 +1779,6 @@ var rfidSetAddr      = document.getElementById("rfid-set-addr");
 var rfidSetTags      = document.getElementById("rfid-set-tags");
 var rfidSetFeedback  = document.getElementById("rfid-settings-feedback");
 
-var RFID_LOG_PLACEHOLDER = rfidLog.textContent;
 var RFID_MAX_LIVE_ROWS = 50;
 
 var rfidVisible    = false;
@@ -1649,26 +1806,31 @@ function renderRfidReader(s) {
   rfidRunToggle.disabled = false;
 
   var mod = s.module || {};
-  rfidModuleError = mod.state === "error" ? (mod.error || "RFID module not found.") : "";
-  var modText = mod.state === "ok" ? "Connected" : mod.state === "error" ? "Not found" : "Idle";
-  rfidModuleState.textContent = modText;
+  rfidModuleError = mod.state === "error" ? (mod.error || t("rfid_module_not_found_default")) : "";
+  I18N.setText(rfidModuleState, mod.state === "ok" ? "rfid_mod_connected" : mod.state === "error" ? "rfid_mod_not_found" : "rfid_mod_idle");
   rfidModuleState.className   = "mini-card-value" + (mod.state === "ok" ? " rfid-ok" : mod.state === "error" ? " rfid-bad" : "");
-  rfidModuleState.title       = mod.state === "idle" ? "Not in use: the reader is only polled while it is on, scanning or live scanning." : (mod.error || "");
+  if (mod.state === "idle") {
+    rfidModuleState.setAttribute("data-i18n-title", "rfid_mod_idle_title");
+    rfidModuleState.title = t("rfid_mod_idle_title");
+  } else {
+    rfidModuleState.removeAttribute("data-i18n-title");
+    rfidModuleState.title = mod.error || "";
+  }
 
   if (s.busy_command) {
-    setRfidBadge("running command", "badge-neutral");
+    setRfidBadge("badge_running_command", "badge-neutral");
   } else if (rfidRunning && mod.state === "error") {
-    setRfidBadge("error", "badge-failed");
+    setRfidBadge("badge_error", "badge-failed");
   } else if (rfidRunning) {
-    setRfidBadge("running", "badge-active");
+    setRfidBadge("badge_running", "badge-active");
   } else {
-    setRfidBadge("stopped", "badge-inactive");
+    setRfidBadge("badge_stopped", "badge-inactive");
   }
 
   if (mod.state === "error" && mod.error) {
-    showFeedback(rfidRunFeedback, "RFID module: " + mod.error, "error");
+    showFeedback(rfidRunFeedback, msg("rfid_module_error", { error: mod.error }), "error");
   } else if (s.busy_command) {
-    showFeedback(rfidRunFeedback, "Running: " + s.busy_command, "");
+    showFeedback(rfidRunFeedback, msg("output_running_cmd", { command: s.busy_command }), "");
   } else if (rfidRunFeedback.classList.contains("error") && mod.state !== "error") {
     showFeedback(rfidRunFeedback, "", "");
   }
@@ -1677,14 +1839,15 @@ function renderRfidReader(s) {
   setRfidLive(typeof s.live_active === "boolean" ? s.live_active : rfidLive);
 }
 
-function setRfidBadge(text, cls) {
-  rfidBadge.textContent = text;
-  rfidBadge.className   = "service-badge " + cls;
+// key: badge_* translation key
+function setRfidBadge(key, cls) {
+  I18N.setText(rfidBadge, key);
+  rfidBadge.className = "service-badge " + cls;
 }
 
 function loadRfidStatus(fillSettings) {
   llamaRequest("GET", "/api/rfid/status", null, 5000, function (err, data) {
-    if (err) { setRfidBadge("unknown", "badge-neutral"); return; }
+    if (err) { setRfidBadge("badge_unknown", "badge-neutral"); return; }
     renderRfidReader(data);
     rfidBusDisplay.textContent = data.device + " · " + data.address;
     document.getElementById("rfid-version").textContent = "xerxes-rfid v" + data.version;
@@ -1702,15 +1865,13 @@ function loadRfidStatus(fillSettings) {
 rfidRunToggle.addEventListener("change", function () {
   var enable = rfidRunToggle.checked;
   rfidRunToggle.disabled = true;
-  showFeedback(rfidRunFeedback, enable ? "Starting reader..." : "Stopping reader...", "");
+  showFeedback(rfidRunFeedback, msg(enable ? "rfid_starting" : "rfid_stopping"), "");
   llamaRequest("POST", "/api/rfid/run", { enabled: enable }, 8000, function (err, data) {
     rfidRunToggle.disabled = false;
     if (err || !data.success) {
-      showFeedback(rfidRunFeedback, err || data.error || "Could not change the reader.", "error");
+      showFeedback(rfidRunFeedback, err || data.error || msg("rfid_change_failed"), "error");
     } else {
-      showFeedback(rfidRunFeedback, enable
-        ? "Reader on. Tap a registered tag to run its command."
-        : "Reader off. Tags will not run commands.", "success");
+      showFeedback(rfidRunFeedback, msg(enable ? "rfid_on" : "rfid_off"), "success");
     }
     loadRfidStatus(false);
     rfidPollEvents();
@@ -1718,7 +1879,7 @@ rfidRunToggle.addEventListener("change", function () {
 });
 
 function rfidAppendLog(text) {
-  if (rfidLogEmpty) { rfidLog.textContent = ""; rfidLogEmpty = false; }
+  if (rfidLogEmpty) { I18N.clear(rfidLog); rfidLog.textContent = ""; rfidLogEmpty = false; }
   var nearBottom = rfidLog.scrollHeight - rfidLog.scrollTop - rfidLog.clientHeight < 40;
   rfidLog.textContent += text;
   if (rfidLog.textContent.length > 60000) rfidLog.textContent = rfidLog.textContent.slice(-50000);
@@ -1726,30 +1887,32 @@ function rfidAppendLog(text) {
 }
 
 document.getElementById("rfid-log-clear").addEventListener("click", function () {
-  rfidLog.textContent = RFID_LOG_PLACEHOLDER;
+  I18N.setText(rfidLog, "rfid_log_placeholder");
   rfidLogEmpty = true;
 });
 
+// Log lines are a running transcript, so they stay in the language they
+// were written in (like a terminal) rather than re-translating.
 function rfidHandleEvent(ev) {
-  var t = "[" + rfidTime(ev.time_ms) + "] ";
+  var ts = "[" + rfidTime(ev.time_ms) + "] ";
   if (ev.kind === "run") {
     if (ev.tags_error) {
-      rfidAppendLog(t + ev.id + "\nTag file error, no commands run: " + ev.tags_error + "\n\n");
+      rfidAppendLog(ts + ev.id + "\n" + t("rfid_log_tagfile_error", { error: ev.tags_error }) + "\n\n");
     } else if (ev.registered) {
-      rfidAppendLog(t + ev.id + "\nTag known, running command: " + ev.command + "\n");
+      rfidAppendLog(ts + ev.id + "\n" + t("rfid_log_known", { command: ev.command }) + "\n");
     } else {
-      rfidAppendLog(t + ev.id + "\nTag unknown, no commands run\n\n");
+      rfidAppendLog(ts + ev.id + "\n" + t("rfid_log_unknown") + "\n\n");
     }
   } else if (ev.kind === "result") {
     var out = ev.output || "";
     if (out && out.charAt(out.length - 1) !== "\n") out += "\n";
-    if (ev.truncated) out += "... (output truncated)\n";
+    if (ev.truncated) out += t("rfid_log_truncated") + "\n";
     var secs = (ev.duration_ms / 1000).toFixed(1);
-    rfidAppendLog(out + t + "Command finished with exit code " + ev.exit_code + " (" + secs + " s)\n\n");
+    rfidAppendLog(out + ts + t("rfid_log_finished", { code: ev.exit_code, secs: secs }) + "\n\n");
   } else if (ev.kind === "error") {
-    rfidAppendLog(t + "Error: " + ev.message + "\n\n");
+    rfidAppendLog(ts + t("rfid_log_error", { message: ev.message }) + "\n\n");
   } else if (ev.kind === "info") {
-    rfidAppendLog(t + ev.message + "\n\n");
+    rfidAppendLog(ts + ev.message + "\n\n");
   } else if (ev.kind === "live") {
     rfidAddLiveRow(ev);
   }
@@ -1771,12 +1934,12 @@ function rfidPollEvents() {
 function loadRfidTags() {
   llamaRequest("GET", "/api/rfid/tags", null, 5000, function (err, data) {
     if (err) { showFeedback(rfidTagsFeedback, err, "error"); return; }
-    if (data.path) rfidTagsPath.textContent = "Stored in " + data.path + ".";
+    if (data.path) I18N.setText(rfidTagsPath, "rfid_tags_path", { path: data.path });
     if (!data.success) {
       rfidTags = [];
       renderRfidTags();
       rfidTagCount.textContent = "—";
-      showFeedback(rfidTagsFeedback, "Error: " + data.error + " The file has not been changed; fix or remove it to manage tags here.", "error");
+      showFeedback(rfidTagsFeedback, msg("rfid_tags_file_error", { error: data.error }), "error");
       return;
     }
     if (rfidTagsFeedback.classList.contains("error")) showFeedback(rfidTagsFeedback, "", "");
@@ -1824,13 +1987,13 @@ function renderRfidTags() {
       input.value = tag.command;
       input.maxLength = 1024;
       input.spellcheck = false;
-      input.setAttribute("aria-label", "Command for " + tag.id);
+      input.setAttribute("aria-label", t("rfid_cmd_aria", { id: tag.id }));
       input.addEventListener("keydown", function (e) {
         if (e.key === "Enter") saveRfidEdit(tag.id, input.value, saveBtn);
         if (e.key === "Escape") { rfidEditingId = null; renderRfidTags(); }
       });
-      var saveBtn = rfidSmallBtn("Save", "action-btn", function () { saveRfidEdit(tag.id, input.value, saveBtn); });
-      var cancelBtn = rfidSmallBtn("Cancel", "secondary-btn", function () { rfidEditingId = null; renderRfidTags(); });
+      var saveBtn = rfidSmallBtn("common_save", "action-btn", function () { saveRfidEdit(tag.id, input.value, saveBtn); });
+      var cancelBtn = rfidSmallBtn("common_cancel", "secondary-btn", function () { rfidEditingId = null; renderRfidTags(); });
       row.appendChild(input);
       actions.appendChild(saveBtn);
       actions.appendChild(cancelBtn);
@@ -1845,50 +2008,51 @@ function renderRfidTags() {
     cmd.textContent = tag.command;
     cmd.title = tag.command;
     row.appendChild(cmd);
-    actions.appendChild(rfidSmallBtn("Edit", "secondary-btn", function () {
+    actions.appendChild(rfidSmallBtn("common_edit", "secondary-btn", function () {
       rfidEditingId = tag.id;
       showFeedback(rfidTagsFeedback, "", "");
       renderRfidTags();
     }));
-    actions.appendChild(rfidSmallBtn("Delete", "secondary-btn rfid-delete-btn", function () { deleteRfidTag(tag); }));
+    actions.appendChild(rfidSmallBtn("common_delete", "secondary-btn rfid-delete-btn", function () { deleteRfidTag(tag); }));
     row.appendChild(actions);
     rfidTagList.appendChild(row);
   });
 }
 
-function rfidSmallBtn(label, cls, onClick) {
+// labelKey: translation key for the button text
+function rfidSmallBtn(labelKey, cls, onClick) {
   var b = document.createElement("button");
   b.type = "button";
   b.className = cls + " rfid-small-btn";
-  b.textContent = label;
+  I18N.setText(b, labelKey);
   b.addEventListener("click", onClick);
   return b;
 }
 
 function saveRfidEdit(id, command, btn) {
   command = command.trim();
-  if (!command) { showFeedback(rfidTagsFeedback, "Command cannot be empty.", "error"); return; }
+  if (!command) { showFeedback(rfidTagsFeedback, msg("rfid_cmd_empty"), "error"); return; }
   btn.disabled = true;
   llamaRequest("POST", "/api/rfid/tags", { id: id, command: command, mode: "edit" }, 8000, function (err, data) {
     btn.disabled = false;
     if (err || !data.success) {
-      showFeedback(rfidTagsFeedback, err || data.error || "Could not update the tag.", "error");
+      showFeedback(rfidTagsFeedback, err || data.error || msg("rfid_update_failed"), "error");
       return;
     }
     rfidEditingId = null;
-    showFeedback(rfidTagsFeedback, data.message || ("Tag " + id + " updated."), "success");
+    showFeedback(rfidTagsFeedback, data.message || msg("rfid_tag_updated", { id: id }), "success");
     loadRfidTags();
   });
 }
 
 function deleteRfidTag(tag) {
-  if (!confirm("Delete " + tag.id + " (\"" + tag.command + "\")?")) return;
+  if (!confirm(t("rfid_delete_confirm", { id: tag.id, command: tag.command }))) return;
   llamaRequest("POST", "/api/rfid/tags/delete", { id: tag.id }, 8000, function (err, data) {
     if (err || !data.success) {
-      showFeedback(rfidTagsFeedback, err || data.error || "Could not delete the tag.", "error");
+      showFeedback(rfidTagsFeedback, err || data.error || msg("rfid_delete_failed"), "error");
     } else {
       if (rfidEditingId === tag.id) rfidEditingId = null;
-      showFeedback(rfidTagsFeedback, data.message || ("Tag " + tag.id + " deleted."), "success");
+      showFeedback(rfidTagsFeedback, data.message || msg("rfid_tag_deleted", { id: tag.id }), "success");
     }
     loadRfidTags();
   });
@@ -1907,14 +2071,17 @@ document.getElementById("rfid-tags-refresh").addEventListener("click", function 
 });
 
 function showRfidAlreadyRegistered(id, existing) {
+  I18N.clear(rfidAddFeedback);
   rfidAddFeedback.textContent = "";
   rfidAddFeedback.className = "control-feedback error";
-  rfidAddFeedback.appendChild(document.createTextNode(
-    "Tag " + id + " is already registered with command: \"" + existing + "\" "));
+  var text = document.createElement("span");
+  I18N.setText(text, "rfid_already_registered", { id: id, command: existing });
+  rfidAddFeedback.appendChild(text);
+  rfidAddFeedback.appendChild(document.createTextNode(" "));
   var btn = document.createElement("button");
   btn.type = "button";
   btn.className = "clear-btn rfid-inline-btn";
-  btn.textContent = "Edit it instead";
+  I18N.setText(btn, "rfid_edit_instead");
   btn.addEventListener("click", function () {
     showFeedback(rfidAddFeedback, "", "");
     rfidNewId.value = "";
@@ -1924,20 +2091,21 @@ function showRfidAlreadyRegistered(id, existing) {
   rfidAddFeedback.appendChild(btn);
 }
 
+// text: optional msg(key, params) for the status line
 function setRfidScanning(on, text) {
   rfidScanStatus.hidden = !on;
   rfidScanBtn.disabled  = on;
-  rfidScanBtn.textContent = on ? "Scanning..." : "Scan Tag";
-  if (text) rfidScanText.textContent = text;
+  I18N.setText(rfidScanBtn, on ? "rfid_scanning_btn" : "rfid_scan_btn");
+  if (text) setMsg(rfidScanText, text);
 }
 
 rfidScanBtn.addEventListener("click", function () {
   showFeedback(rfidAddFeedback, "", "");
-  setRfidScanning(true, "Place an RFID tag near the Xerxes Pi...");
+  setRfidScanning(true, msg("rfid_scan_place"));
   llamaRequest("POST", "/api/rfid/scan/start", null, 5000, function (err, data) {
     if (err || !data.success) {
       setRfidScanning(false);
-      showFeedback(rfidAddFeedback, err || data.error || "Could not start scanning.", "error");
+      showFeedback(rfidAddFeedback, err || data.error || msg("rfid_scan_start_failed"), "error");
       return;
     }
     rfidPollScan();
@@ -1954,9 +2122,9 @@ function rfidPollScan() {
     if (data.state === "waiting") {
       var mod = data.module || {};
       if (mod.state === "error") {
-        rfidScanText.textContent = "Can't reach the RFID module: " + mod.error + " (retrying, " + data.seconds_left + " s left)";
+        I18N.setText(rfidScanText, "rfid_scan_module_err", { error: mod.error, secs: data.seconds_left });
       } else {
-        rfidScanText.textContent = "Place an RFID tag near the Xerxes Pi... (" + data.seconds_left + " s)";
+        I18N.setText(rfidScanText, "rfid_scan_place_secs", { secs: data.seconds_left });
       }
       rfidScanTimer = setTimeout(rfidPollScan, 400);
       return;
@@ -1968,14 +2136,15 @@ function rfidPollScan() {
       if (data.registered) {
         showRfidAlreadyRegistered(data.id, data.existing_command);
       } else {
-        showFeedback(rfidAddFeedback, "Scanned: " + data.id + (data.type ? " (" + data.type + ")" : "") +
-                     ". Enter the command to run, then click Add Tag.", "success");
+        showFeedback(rfidAddFeedback, data.type
+          ? msg("rfid_scanned_type", { id: data.id, type: data.type })
+          : msg("rfid_scanned", { id: data.id }), "success");
         rfidNewCmd.focus();
       }
     } else if (data.state === "timeout") {
-      showFeedback(rfidAddFeedback, "No tag detected. Hold the tag flat against the reader and try again.", "error");
+      showFeedback(rfidAddFeedback, msg("rfid_scan_timeout"), "error");
     } else if (data.state === "cancelled") {
-      showFeedback(rfidAddFeedback, "Scan cancelled.", "");
+      showFeedback(rfidAddFeedback, msg("rfid_scan_cancelled"), "");
     }
   });
 }
@@ -1985,15 +2154,15 @@ document.getElementById("rfid-scan-cancel").addEventListener("click", function (
   rfidScanTimer = null;
   llamaRequest("POST", "/api/rfid/scan/cancel", null, 5000, function () {
     setRfidScanning(false);
-    showFeedback(rfidAddFeedback, "Scan cancelled.", "");
+    showFeedback(rfidAddFeedback, msg("rfid_scan_cancelled"), "");
   });
 });
 
 function addRfidTag() {
   var id  = rfidNewId.value.trim();
   var cmd = rfidNewCmd.value.trim();
-  if (!id)  { showFeedback(rfidAddFeedback, "Scan a tag or enter its ID first.", "error"); rfidNewId.focus(); return; }
-  if (!cmd) { showFeedback(rfidAddFeedback, "Command cannot be empty.", "error"); rfidNewCmd.focus(); return; }
+  if (!id)  { showFeedback(rfidAddFeedback, msg("rfid_err_need_id"), "error"); rfidNewId.focus(); return; }
+  if (!cmd) { showFeedback(rfidAddFeedback, msg("rfid_cmd_empty"), "error"); rfidNewCmd.focus(); return; }
 
   rfidAddBtn.disabled = true;
   llamaRequest("POST", "/api/rfid/tags", { id: id, command: cmd, mode: "add" }, 8000, function (err, data, status) {
@@ -2003,12 +2172,12 @@ function addRfidTag() {
       return;
     }
     if (err || !data.success) {
-      showFeedback(rfidAddFeedback, err || data.error || "Could not add the tag.", "error");
+      showFeedback(rfidAddFeedback, err || data.error || msg("rfid_add_failed"), "error");
       return;
     }
     rfidNewId.value = "";
     rfidNewCmd.value = "";
-    showFeedback(rfidAddFeedback, data.message || "Tag added.", "success");
+    showFeedback(rfidAddFeedback, data.message || msg("rfid_tag_added"), "success");
     loadRfidTags();
   });
 }
@@ -2019,14 +2188,12 @@ rfidNewCmd.addEventListener("keydown", function (e) { if (e.key === "Enter") add
 function setRfidLive(on) {
   rfidLive = on;
   var failing = on && rfidModuleError;
-  rfidLiveBtn.textContent = on ? "Stop Live Scan" : "Start Live Scan";
-  rfidLiveBadge.textContent = failing ? "error" : on ? "scanning" : "off";
+  I18N.setText(rfidLiveBtn, on ? "rfid_live_stop" : "rfid_live_start");
+  I18N.setText(rfidLiveBadge, failing ? "badge_error" : on ? "badge_scanning" : "badge_off");
   rfidLiveBadge.className = "service-badge " + (failing ? "badge-failed" : on ? "badge-active" : "badge-inactive");
-  showFeedback(rfidLiveFeedback, failing ? "Not found: " + rfidModuleError : "", failing ? "error" : "");
+  showFeedback(rfidLiveFeedback, failing ? msg("rfid_not_found", { error: rfidModuleError }) : "", failing ? "error" : "");
   if (rfidLiveList.childElementCount === 0) {
-    rfidLiveEmpty.textContent = failing ? "No tags can be read until the RFID module is connected."
-      : on ? "Live scan running: place tags near the reader."
-      : "Start a live scan, then place tags near the reader.";
+    I18N.setText(rfidLiveEmpty, failing ? "rfid_live_empty_failing" : on ? "rfid_live_empty_running" : "rfid_live_empty");
   }
 }
 
@@ -2035,7 +2202,7 @@ rfidLiveBtn.addEventListener("click", function () {
   rfidLiveBtn.disabled = true;
   llamaRequest("POST", start ? "/api/rfid/live/start" : "/api/rfid/live/stop", null, 5000, function (err, data) {
     rfidLiveBtn.disabled = false;
-    if (err || !data.success) { alert(err || data.error || "Could not change live scan."); return; }
+    if (err || !data.success) { alert(msgText(err || data.error || msg("rfid_live_change_failed"))); return; }
     setRfidLive(start);
     rfidPollEvents();
   });
@@ -2065,10 +2232,12 @@ function rfidAddLiveRow(ev) {
   id.textContent = ev.id;
   var type = document.createElement("span");
   type.className = "service-badge badge-neutral";
-  type.textContent = ev.type || "tag";
+  if (ev.type) type.textContent = ev.type;
+  else I18N.setText(type, "rfid_live_tag");
   var status = document.createElement("span");
   status.className = "rfid-live-status " + (ev.registered ? "registered" : "unregistered");
-  status.textContent = ev.registered ? "registered → \"" + ev.command + "\"" : "not registered";
+  if (ev.registered) I18N.setText(status, "rfid_live_registered", { command: ev.command });
+  else               I18N.setText(status, "rfid_live_unregistered");
   head.appendChild(time);
   head.appendChild(id);
   head.appendChild(type);
@@ -2076,7 +2245,8 @@ function rfidAddLiveRow(ev) {
 
   var detail = document.createElement("div");
   detail.className = "rfid-live-detail";
-  detail.textContent = "detail: " + ev.detail + (ev.tags_error ? "\ntag file error: " + ev.tags_error : "");
+  if (ev.tags_error) I18N.setText(detail, "rfid_live_detail_tagfile", { detail: ev.detail, error: ev.tags_error });
+  else               I18N.setText(detail, "rfid_live_detail", { detail: ev.detail });
 
   row.appendChild(head);
   row.appendChild(detail);
@@ -2089,15 +2259,15 @@ document.getElementById("rfid-settings-save").addEventListener("click", function
   var btn  = this;
   var bus  = rfidSetBus.value.trim();
   var addr = rfidSetAddr.value.trim();
-  if (!/^\d{1,4}$/.test(bus)) { showFeedback(rfidSetFeedback, "I2C bus must be a number, e.g. 1 for /dev/i2c-1.", "error"); return; }
-  if (!/^(0x[0-9a-fA-F]{1,2}|\d{1,3})$/.test(addr)) { showFeedback(rfidSetFeedback, "Address must look like 0x2C.", "error"); return; }
+  if (!/^\d{1,4}$/.test(bus)) { showFeedback(rfidSetFeedback, msg("rfid_err_bus"), "error"); return; }
+  if (!/^(0x[0-9a-fA-F]{1,2}|\d{1,3})$/.test(addr)) { showFeedback(rfidSetFeedback, msg("rfid_err_addr"), "error"); return; }
   btn.disabled = true;
   llamaRequest("POST", "/api/rfid/settings",
     { bus: parseInt(bus, 10), address: addr, tags_path: rfidSetTags.value.trim() }, 8000,
     function (err, data) {
       btn.disabled = false;
-      if (err || !data.success) { showFeedback(rfidSetFeedback, err || data.error || "Could not save settings.", "error"); return; }
-      showFeedback(rfidSetFeedback, "Settings saved.", "success");
+      if (err || !data.success) { showFeedback(rfidSetFeedback, err || data.error || msg("rfid_settings_failed"), "error"); return; }
+      showFeedback(rfidSetFeedback, msg("rfid_settings_saved"), "success");
       loadRfidStatus(true);
       loadRfidTags();
     });
@@ -2107,17 +2277,17 @@ document.getElementById("rfid-settings-defaults").addEventListener("click", func
   rfidSetBus.value  = "1";
   rfidSetAddr.value = "0x2C";
   rfidSetTags.value = rfidDefaultTagsPath;
-  showFeedback(rfidSetFeedback, "Defaults filled in. Click Save to apply.", "");
+  showFeedback(rfidSetFeedback, msg("rfid_defaults_filled"), "");
 });
 
 document.getElementById("rfid-probe-btn").addEventListener("click", function () {
   var btn = this;
   btn.disabled = true;
-  showFeedback(rfidSetFeedback, "Checking the RFID module...", "");
+  showFeedback(rfidSetFeedback, msg("rfid_probing"), "");
   llamaRequest("POST", "/api/rfid/probe", null, 10000, function (err, data) {
     btn.disabled = false;
     if (err) showFeedback(rfidSetFeedback, err, "error");
-    else if (!data.success) showFeedback(rfidSetFeedback, "Not found: " + data.error, "error");
+    else if (!data.success) showFeedback(rfidSetFeedback, msg("rfid_not_found", { error: data.error }), "error");
     else showFeedback(rfidSetFeedback, data.message, "success");
     loadRfidStatus(false);
   });
@@ -2150,8 +2320,279 @@ window.addEventListener("pagehide", function () {
   if (rfidScanTimer && navigator.sendBeacon) navigator.sendBeacon(API_BASE + "/api/rfid/scan/cancel");
 });
 
-/* ── INIT ── */
-loadLang();
-loadDashboard();
-loadServices();
-loadNewtStatus();
+/* ── I2C: OLED DISPLAY ──
+   What the OLED shows (see include/oled_manager.h). While the tab is open it
+   polls the display state and redraws the preview, so values like CPU
+   temperature stay current. */
+var oledPowerToggle     = document.getElementById("oled-power-toggle");
+var oledBadge           = document.getElementById("badge-oled");
+var oledDisplayState    = document.getElementById("oled-display-state");
+var oledBusDisplay      = document.getElementById("oled-bus-display");
+var oledModeDisplay     = document.getElementById("oled-mode-display");
+var oledPowerFeedback   = document.getElementById("oled-power-feedback");
+var oledModeRadios      = document.querySelectorAll('input[name="oled-mode"]');
+var oledStatList        = document.getElementById("oled-stat-list");
+var oledPreview         = document.getElementById("oled-preview");
+var oledPreviewNote     = document.getElementById("oled-preview-note");
+var oledContentSave     = document.getElementById("oled-content-save");
+var oledContentFeedback = document.getElementById("oled-content-feedback");
+var oledSetBus          = document.getElementById("oled-set-bus");
+var oledSetAddr         = document.getElementById("oled-set-addr");
+var oledSetFeedback     = document.getElementById("oled-settings-feedback");
+
+var OLED_POLL_MS = 3000;
+
+var oledVisible    = false;
+var oledPollTimer  = null;
+var oledSaved      = null;  // last /api/oled/status reply
+var oledPreviewSeq = 0;     // drops preview replies that arrive out of order
+
+// Message for an error code from the backend, with the code itself (FR-6)
+// Returns a msg() so the text re-translates if the language changes
+function oledErrorText(code) {
+  var vars = { device: oledSaved ? oledSaved.device : "", address: oledSaved ? oledSaved.address : "" };
+  var key  = "oled_err_" + code;
+  var message = code && t(key) !== key ? msg(key, vars) : msg("oled_err_unknown");
+  return code ? msg("oled_err_with_code", { message: message, code_note: msg("oled_err_code", { code: code }) })
+              : message;
+}
+
+function setOledBadge(key, cls) {
+  I18N.setText(oledBadge, key);
+  oledBadge.className = "service-badge " + cls;
+}
+
+function oledFormMode() {
+  var checked = document.querySelector('input[name="oled-mode"]:checked');
+  return checked ? checked.value : "stats";
+}
+
+function oledFormStats() {
+  return Array.prototype.map.call(oledStatList.querySelectorAll("input:checked"), function (box) {
+    return box.value;
+  });
+}
+
+function oledUnsaved() {
+  return !!oledSaved && (oledFormMode() !== oledSaved.mode ||
+                         oledFormStats().join(",") !== oledSaved.stats.join(","));
+}
+
+function renderOledStatus(s) {
+  oledSaved = s;
+  oledPowerToggle.checked  = !!s.enabled;
+  oledPowerToggle.disabled = false;
+
+  var d = s.display || {};
+  var state = d.state || "idle";
+  I18N.setText(oledDisplayState, "oled_state_" + state);
+  oledDisplayState.className = "mini-card-value" + (state === "ok" ? " rfid-ok" : state === "error" ? " rfid-bad" : "");
+  if (state === "idle") {
+    oledDisplayState.setAttribute("data-i18n-title", "oled_state_idle_hint");
+    oledDisplayState.title = t("oled_state_idle_hint");
+  } else {
+    oledDisplayState.removeAttribute("data-i18n-title");
+    oledDisplayState.title = d.error || "";   // from the device, shown as-is
+  }
+  setMsg(oledBusDisplay, s.device + " · " + s.address);
+  I18N.setText(oledModeDisplay, !s.enabled ? "oled_badge_off"
+                              : s.mode === "qr" ? "oled_showing_qr" : "oled_showing_stats");
+
+  if (s.enabled && state === "error") setOledBadge("oled_badge_error", "badge-failed");
+  else if (s.enabled)                 setOledBadge("oled_badge_on", "badge-active");
+  else                                setOledBadge("oled_badge_off", "badge-inactive");
+
+  if (state === "error") {
+    showFeedback(oledPowerFeedback, oledErrorText(d.code), "error");
+  } else if (oledPowerFeedback.classList.contains("error")) {
+    showFeedback(oledPowerFeedback, "", "");
+  }
+  updateOledPreviewNote();
+}
+
+function renderOledStatList(available, selected) {
+  oledStatList.innerHTML = "";
+  available.forEach(function (key) {
+    var row = document.createElement("label");
+    row.className = "model-row";
+    var box = document.createElement("input");
+    box.type    = "checkbox";
+    box.value   = key;
+    box.checked = selected.indexOf(key) >= 0;
+    box.addEventListener("change", oledFormChanged);
+    var name = document.createElement("span");
+    I18N.setText(name, "oled_stat_" + key);
+    row.appendChild(box);
+    row.appendChild(name);
+    oledStatList.appendChild(row);
+  });
+}
+
+function fillOledForm(s) {
+  oledModeRadios.forEach(function (r) { r.checked = r.value === s.mode; });
+  renderOledStatList(s.available_stats || [], s.stats || []);
+  oledSetBus.value  = s.bus;
+  oledSetAddr.value = s.address;
+  oledFormChanged();
+}
+
+// Stats only apply in stats mode, so grey them out for the QR code
+function oledFormChanged() {
+  var qr = oledFormMode() === "qr";
+  oledStatList.querySelectorAll(".model-row").forEach(function (row) {
+    row.classList.toggle("disabled", qr);
+    row.querySelector("input").disabled = qr;
+  });
+  showFeedback(oledContentFeedback, "", "");
+  loadOledPreview();
+}
+
+function updateOledPreviewNote() {
+  if (oledUnsaved()) {
+    I18N.setText(oledPreviewNote, "oled_preview_unsaved");
+  } else if (oledFormMode() === "qr" && oledSaved && oledSaved.panel_url) {
+    I18N.setText(oledPreviewNote, "oled_preview_qr_note", { url: oledSaved.panel_url });
+  } else {
+    setMsg(oledPreviewNote, "");
+  }
+}
+
+// The preview shows the form, not the saved settings, so changes can be seen before saving
+function loadOledPreview() {
+  var path = "/api/oled/preview?mode=" + encodeURIComponent(oledFormMode()) +
+             "&stats=" + encodeURIComponent(oledFormStats().join(","));
+  var seq = ++oledPreviewSeq;
+  llamaRequest("GET", path, null, 5000, function (err, data) {
+    if (seq !== oledPreviewSeq || err || !data.success) return;
+    drawOledPreview(data);
+  });
+  updateOledPreviewNote();
+}
+
+// Each row is hex, the top bit of each byte is the leftmost of its 8 pixels
+function drawOledPreview(p) {
+  var ctx = oledPreview.getContext("2d");
+  ctx.fillStyle = "#000";
+  ctx.fillRect(0, 0, p.width, p.height);
+  ctx.fillStyle = "#fff";
+  p.rows.forEach(function (hex, y) {
+    for (var i = 0; i < hex.length; i += 2) {
+      var byte = parseInt(hex.substr(i, 2), 16);
+      for (var bit = 0; bit < 8; bit++) {
+        if (byte & (0x80 >> bit)) ctx.fillRect(i * 4 + bit, y, 1, 1);
+      }
+    }
+  });
+}
+
+function loadOledStatus(fillForm) {
+  llamaRequest("GET", "/api/oled/status", null, 5000, function (err, data) {
+    if (err) { setOledBadge("oled_badge_unknown", "badge-neutral"); return; }
+    renderOledStatus(data);
+    if (fillForm) fillOledForm(data);
+    else loadOledPreview();
+  });
+}
+
+function oledPoll() {
+  clearTimeout(oledPollTimer);
+  if (!oledVisible) return;
+  loadOledStatus(false);
+  oledPollTimer = setTimeout(oledPoll, OLED_POLL_MS);
+}
+
+oledPowerToggle.addEventListener("change", function () {
+  var enable = oledPowerToggle.checked;
+  oledPowerToggle.disabled = true;
+  llamaRequest("POST", "/api/oled/power", { enabled: enable }, 8000, function (err, data) {
+    oledPowerToggle.disabled = false;
+    if (err || !data.success) {
+      showFeedback(oledPowerFeedback, err ? msg("oled_err_backend") : oledErrorText(data.code), "error");
+    }
+    loadOledStatus(false);
+  });
+});
+
+oledModeRadios.forEach(function (r) { r.addEventListener("change", oledFormChanged); });
+
+oledContentSave.addEventListener("click", function () {
+  var mode = oledFormMode(), stats = oledFormStats();
+  if (mode === "stats" && !stats.length) {
+    showFeedback(oledContentFeedback, msg("oled_err_no_stats"), "error");
+    return;
+  }
+  oledContentSave.disabled = true;
+  showFeedback(oledContentFeedback, msg("oled_saving"), "");
+  llamaRequest("POST", "/api/oled/display", { mode: mode, stats: stats }, 8000, function (err, data) {
+    oledContentSave.disabled = false;
+    if (err) { showFeedback(oledContentFeedback, msg("oled_err_backend"), "error"); return; }
+    if (!data.success) { showFeedback(oledContentFeedback, oledErrorText(data.code), "error"); return; }
+    var offline = oledSaved && oledSaved.display && oledSaved.display.state === "error";
+    showFeedback(oledContentFeedback, msg(offline ? "oled_content_saved_offline" : "oled_content_saved"), "success");
+    loadOledStatus(false);
+  });
+});
+
+document.getElementById("oled-settings-save").addEventListener("click", function () {
+  var body = { bus: oledSetBus.value.trim(), address: oledSetAddr.value.trim() };
+  showFeedback(oledSetFeedback, msg("oled_saving"), "");
+  llamaRequest("POST", "/api/oled/settings", body, 8000, function (err, data) {
+    if (err) { showFeedback(oledSetFeedback, msg("oled_err_backend"), "error"); return; }
+    if (!data.success) { showFeedback(oledSetFeedback, oledErrorText(data.code), "error"); return; }
+    showFeedback(oledSetFeedback, msg("oled_settings_saved"), "success");
+    loadOledStatus(false);
+  });
+});
+
+document.getElementById("oled-probe-btn").addEventListener("click", function () {
+  var btn = this;
+  btn.disabled = true;
+  showFeedback(oledSetFeedback, msg("oled_probe_testing"), "");
+  llamaRequest("POST", "/api/oled/probe", null, 10000, function (err, data) {
+    btn.disabled = false;
+    if (err) { showFeedback(oledSetFeedback, msg("oled_err_backend"), "error"); return; }
+    if (!data.success) {
+      showFeedback(oledSetFeedback, oledErrorText(data.code), "error");
+    } else {
+      showFeedback(oledSetFeedback, msg("oled_probe_ok", { device: data.device, address: data.address }), "success");
+    }
+    loadOledStatus(false);
+  });
+});
+
+document.getElementById("oled-settings-defaults").addEventListener("click", function () {
+  oledSetBus.value  = oledSaved ? oledSaved.default_bus : 1;
+  oledSetAddr.value = oledSaved ? oledSaved.default_address : "0x3C";
+  showFeedback(oledSetFeedback, "", "");
+});
+
+function oledOnShow() {
+  if (oledVisible) return;
+  oledVisible = true;
+  loadOledStatus(true);
+  oledPollTimer = setTimeout(oledPoll, OLED_POLL_MS);
+}
+
+function oledOnHide() {
+  oledVisible = false;
+  clearTimeout(oledPollTimer);
+}
+
+/* ── LANGUAGE SWITCH ──
+   I18N re-applies every data-i18n* attribute itself; this only handles
+   text that is formatted in JS rather than looked up by key. */
+document.addEventListener("i18n:change", function () {
+  if (newtLastStatus) renderNewtUpdates(newtLastStatus);   // dates use the new locale
+  renderLlamaRecommended();                                // model notes are per-language
+});
+
+/* ── INIT ──
+   Wait for the translations so nothing flashes in the wrong language;
+   I18N.init falls back to English if they can't be loaded. */
+I18N.init(function () {
+  checkStatus();
+  setInterval(checkStatus, 15000);
+  loadDashboard();
+  loadServices();
+  loadNewtStatus();
+});

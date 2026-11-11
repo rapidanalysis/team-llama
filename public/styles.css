@@ -1396,11 +1396,16 @@ body {
 
 /* Delete button on each installed model row */
 .model-row .model-name { flex: 1; min-width: 0; }
-.model-row .model-delete-btn { margin-left: auto; }
+.model-row .model-delete-btn {
+  margin-left: auto;
+  padding: 0;
+  background: var(--status-off);
+  border-color: var(--status-off);
+  color: #fff;
+}
+.model-row .model-delete-btn svg { display: block; }
+.model-row .model-delete-btn:hover:not(:disabled) { filter: brightness(0.88); }
 .model-row .model-delete-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
-  background: transparent;
-  border-color: var(--border);
-  color: var(--text-secondary);
 }

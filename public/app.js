@@ -1477,7 +1477,10 @@ function renderLlamaModels(models) {
     var del = document.createElement("button");
     del.type      = "button";
     del.className = "remove-btn model-delete-btn";
-    del.innerHTML = "&times;";
+    // An SVG cross rather than the "×" glyph: the glyph's font metrics push it
+    // off-centre, the SVG sits exactly in the middle of the box.
+    del.innerHTML = '<svg viewBox="0 0 12 12" width="12" height="12" aria-hidden="true" focusable="false">' +
+                    '<path d="M2 2L10 10M10 2L2 10" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
     del.addEventListener("click", function (e) {
       e.preventDefault();      // the row is a <label>; don't select the radio
       e.stopPropagation();

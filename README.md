@@ -2,16 +2,12 @@
 
 This repository contains the software for the Xerxes Pi carrier board by Rapid Analysis PTY LTD.
 
-### Notes
+### Requirements
 
-- A Xerxes Pi (Raspberry Pi CM4/CM5) running Raspberry Pi OS or Debian 13
+- A Xerxes Pi (Raspberry Pi CM4/CM5) running Raspberry Pi OS or a VM running Debian 13 (arm64)
 - The `root` user setup on the machine
 - Internet connection for the first install
 - About 2 GB of free disk space, plus room for any AI models you download
-
-- **Language:** C++
-- **Target Hardware:** ARM64 (Raspberry Pi OS / Debian 13)
-- **Dev Environment:** Debian 13 Trixie (ARM64)
 
 ## Repository Structure
 
@@ -116,7 +112,7 @@ Work from the repo root (`cd team-llama`).
 
 ```bash
 make            # builds ./xerxes_backend; only rebuilds what changed
-make llama      # builds llama-server for the Llama tab (an hour or more on a Pi; only needed once)
+make llama      # builds llama-server for the Llama tab (only needed once)
 ```
 
 Other build targets:
@@ -170,15 +166,13 @@ The **Recommended models** list on the Llama tab comes from `public/llama-models
 
 `size` and `note` are optional, and a missing translation falls back to `en`. A `/blob/` link copied from the Hugging Face page also works.
 
-### Languages (i18n)
+`"note"` contains all translations of a model's description as listed under "Recommended models".
+
+### Languages (internationalisation)
+
+**Caution:** the Spanish translation of this application is entirely AI generated and should *not* be used in production. It is purely a placeholder to demonstrate support for other languages.
 
 The panel's language is picked from the dropdown in the top bar (English, Español). The choice is saved in the browser; first-time visitors get their browser's language if it is supported, otherwise English.
-
-- Strings live in `public/i18n/<code>.json`. `en.json` is the source of truth and the fallback for any missing key.
-- In HTML, tag text with `data-i18n="key"` (or `data-i18n-placeholder`, `-title`, `-aria-label`). In JS, use `I18N.setText(el, "key", {param: value})` or `msg("key", params)` with `showFeedback()`, so the text re-translates when the language changes. See the header of `public/i18n.js`.
-- To add a language: copy `en.json` to `<code>.json`, translate the values (keep `{placeholders}` and `<code>` tags), and add it to `LANGUAGES` in `public/i18n.js`.
-
-Command output and error messages that come from the backend itself are shown as-is (English).
 
 ## Testing the API
 

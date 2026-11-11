@@ -3,7 +3,7 @@
 #include <vector>
 #include "json.hpp"
 
-// OLED display (FR-3 to FR-6): 128x64 SSD1306 on I2C, behind /api/oled/*.
+// OLED display: 128x64 SSD1306 on I2C, behind /api/oled/*.
 // Replaces the standalone `xerxes_oled` program. The panel has no memory of its
 // own, so a worker thread redraws it every few seconds while it is on.
 // Settings are saved to $XERXES_CONFIG_DIR/oled.conf (default ~/.xerxes).

@@ -2,7 +2,7 @@
 #include <string>
 #include <vector>
 
-// Newt (Pangolin tunnel client) management — FR-1.
+// Newt (Pangolin tunnel client) management.
 //
 // Newt runs as a Docker container named "xerxes-newt" from the official
 // fosrl/newt image. The Pangolin endpoint, Newt ID and secret are saved to a

@@ -11,4 +11,5 @@ This is a list of features the current system lacks or its technical shortcoming
 8. Show tunnel status on the OLED display.
 9. Store data on RFID tags to authenticate them instead of relying on their UID.
 10. History/log of commands executed by the RFID reader.
-11. 
+11. Text could be clearer/more concise. E.g. the chatbot mentions says "How can I help you manage your server today?" when it has no abilities to manage said server.
+12. Agent-based management, allowing the chatbot to configure the system/install Docker containers.

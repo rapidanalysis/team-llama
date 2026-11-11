@@ -1,0 +1,11 @@
+#!/bin/sh
+set -e
+
+if [ -d /run/systemd/system ]; then
+  systemctl daemon-reload || true
+fi
+
+# Downloaded models (/opt/xerxes/models) and saved settings (/root/.xerxes,
+# including the Newt secret) are left in place. Delete them by hand if needed.
+
+exit 0

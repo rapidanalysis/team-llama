@@ -1,0 +1,17 @@
+#!/bin/sh
+set -e
+
+if [ "$1" = "configure" ]; then
+  # Downloaded models live here; not part of the package, so they survive
+  # upgrades and removal
+  mkdir -p /opt/xerxes/models
+
+  if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload
+    systemctl enable xerxes >/dev/null
+    systemctl restart xerxes
+    echo "Xerxes Pi Admin Panel running on port 8000 (sudo systemctl status xerxes)"
+  fi
+fi
+
+exit 0

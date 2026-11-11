@@ -1,0 +1,26 @@
+# systemd unit for the Xerxes Pi Admin Backend.
+# Installed by deploy_systemd.sh (to /etc/systemd/system) and by the .deb
+# from make deb (to /lib/systemd/system). Both install to /opt/xerxes.
+
+[Unit]
+Description=Xerxes Pi Admin Backend
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/xerxes
+ExecStart=/opt/xerxes/xerxes_backend
+# llama-server (started by the backend) loads its libraries from here
+Environment=LD_LIBRARY_PATH=/opt/xerxes/third_party/llama.cpp/build/bin
+Restart=always
+RestartSec=3
+# Stopping the service also stops llama-server, which can take up to 5 s to exit
+KillMode=control-group
+TimeoutStopSec=15
+# Root for Docker (Newt), I2C (RFID/OLED) and system commands. Settings are
+# saved in /root/.xerxes.
+User=root
+
+[Install]
+WantedBy=multi-user.target

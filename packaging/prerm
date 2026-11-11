@@ -1,0 +1,13 @@
+#!/bin/sh
+set -e
+
+# Stop before files are replaced or removed: a running binary can't be
+# overwritten, and stopping also shuts down any llama-server it started
+if [ -d /run/systemd/system ]; then
+  systemctl stop xerxes 2>/dev/null || true
+  if [ "$1" = "remove" ]; then
+    systemctl disable xerxes >/dev/null 2>&1 || true
+  fi
+fi
+
+exit 0

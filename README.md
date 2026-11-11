@@ -66,26 +66,32 @@ Once this finishes, restart the VM
 ### Building The Application
 
 ```bash
-make
+make            # builds ./xerxes_backend; only rebuilds what changed
+make llama      # builds llama-server for the Llama tab (an hour or more on a Pi)
 ```
+
+Other build targets:
+
+| Command | What it makes |
+|---|---|
+| `make static` | `./xerxes_backend` with libgcc and libstdc++ linked in, so it doesn't depend on the device's C++ runtime version (libcurl and glibc still come from the device) |
+| `make deb` | `build/deb/xerxes-pi_<version>_<arch>.deb`. Installs the same files as `deploy_systemd.sh` (backend, `public/`, llama-server and the `xerxes` service) and starts the service. Install with `sudo apt install ./build/deb/xerxes-pi_*.deb`. Set the version with `make deb DEB_VERSION=0.3.0` |
+| `make bundle` | `xerxes_install.sh`, a single self-extracting script with the source in it. Copy it to a device and run `bash xerxes_install.sh` to unpack and build the backend in `./xerxes`. It doesn't include llama.cpp |
+| `make clean` | Removes build output. Keeps the llama-server build, which is slow to redo |
+
+To cross-compile: `make CXX=aarch64-linux-gnu-g++ TARGET=xerxes_backend_arm64`. A machine with more memory can build llama.cpp faster with `make llama LLAMA_JOBS=4`.
 
 ### Running The Application
 
 ```bash
-./xerxes-backend
+./xerxes_backend
 ```
+
+The panel is at `http://<device-ip>:8000`. Start it from the repo root: it serves `public/` and keeps models in `models/` relative to the directory it's started in.
 
 ### Stopping The Application
 
-Select the terminal window `./xerxes-backend` was run in and press `control` + `c` on your keyboard.
-
-### Removing Built Application
-If changes have been made, run the following command then `make` the program again.
-
-```bash
-rm ./xerxes-backend
-```
-
+Select the terminal window `./xerxes_backend` was run in and press `control` + `c` on your keyboard.
 
 ### Running The Tests
 
@@ -131,32 +137,33 @@ curl -X GET http://127.0.0.1:8000/
 
 ## Deploy as a systemd Service (Production)
 
-To run the Xerxes Pi Admin Panel continuously in the background and ensure it starts automatically on device boot, you should deploy it as a native Linux `systemd` service.
-Deployment process is written in `deploy_systemd.sh`.
+To run the Xerxes Pi Admin Panel in the background and start it on boot, deploy it as the `xerxes` systemd service:
 
-1. Execute the Script
-   Make it executable, and run it with root privileges:
-
-```Bash
-chmod +x deploy.sh
-sudo ./deploy.sh
+```bash
+sudo ./deploy_systemd.sh
 ```
 
-2. Verify the Service
-   To confirm the backend is running successfully in the background, check the systemd status:
+The script:
 
-```Bash
-sudo systemctl status xerxes
+1. Installs any missing build packages, and checks for `httplib.h` and `json.hpp` (run `install_deps.sh` first if they're missing)
+2. Fetches the llama.cpp submodule and builds llama-server if it isn't built yet
+3. Builds `xerxes_backend`, as the user who ran `sudo`, so the repo doesn't end up owned by root
+4. Stops the running service and checks port 8000 is free
+5. Installs the backend, `public/` and llama-server to `/opt/xerxes`, and copies over any models in `models/` (existing ones are kept)
+6. Installs the unit from `packaging/xerxes.service`, starts the service and checks it answers
+
+It's safe to re-run after pulling changes. Settings (Newt, RFID tags, OLED) are kept in `/root/.xerxes`, and models in `/opt/xerxes/models`.
+
+To install on a device without building there, use `make deb` on a build machine of the same architecture and install the `.deb` instead.
+
+Check the service:
+
+```bash
+sudo systemctl status xerxes    # should show active (running)
+sudo journalctl -u xerxes -f    # live logs
 ```
 
-You should see active (running) highlighted in green.
+Open the panel at:
 
-3. Accessing the Admin Panel
-   Once deployed, the C++ backend will automatically listen on Port 8080. You can access the panel via your web browser:
-
-- Local Network (LAN): http://<DEVICE_IP_ADDRESS>:8080 (e.g., http://192.168.1.50:8080)
-- Tailscale (Remote): http://<TAILSCALE_IP>:8080 (e.g., http://100.x.x.x:8080)
-
-
-
-
+- Local network (LAN): `http://<DEVICE_IP_ADDRESS>:8000` (e.g. `http://192.168.1.50:8000`)
+- Tailscale (remote): `http://<TAILSCALE_IP>:8000` (e.g. `http://100.x.x.x:8000`)

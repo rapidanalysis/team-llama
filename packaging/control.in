@@ -1,0 +1,12 @@
+Package: @NAME@
+Version: @VERSION@
+Architecture: @ARCH@
+Maintainer: @MAINTAINER@
+Section: admin
+Priority: optional
+Depends: libcurl4t64 | libcurl4, libgomp1, systemd
+Recommends: docker.io, i2c-tools
+Description: Xerxes Pi Admin Panel
+ Web admin panel for the Xerxes Pi carrier board, served on port 8000.
+ Includes llama-server for the Llama tab. Installs to /opt/xerxes and runs
+ as the xerxes systemd service.
